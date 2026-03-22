@@ -24,6 +24,8 @@ from risk import RiskManager
 from news import NewsSentiment
 from smart_money import SmartMoneyTracker
 from calendar_events import EconomicCalendar
+from market_filters import MarketFilters
+from multi_timeframe import MultiTimeframe
 from logger import setup_logger
 
 def parse_args():
@@ -132,14 +134,14 @@ def main():
     news        = NewsSentiment(cfg) if not args.no_news else None
     smart_money = SmartMoneyTracker(cfg) if cfg.SMART_MONEY_ENABLED else None
     calendar    = EconomicCalendar(cfg) if cfg.CALENDAR_ENABLED else None
+    mkt_filters = MarketFilters(cfg)
+    mtf         = MultiTimeframe(cfg, client, strategy)
 
     logger.info(
         f"Mode: aggression={cfg.AGGRESSION} | "
         f"weights: tech={cfg.TECHNICAL_WEIGHT} news={cfg.NEWS_WEIGHT} "
-        f"sm={cfg.SMART_MONEY_WEIGHT} cal={cfg.CALENDAR_WEIGHT} | "
-        f"news={'ON' if news else 'OFF'} | "
-        f"smart_money={'ON' if smart_money else 'OFF'} | "
-        f"calendar={'ON' if calendar else 'OFF'}"
+        f"sm={cfg.SMART_MONEY_WEIGHT} cal={cfg.CALENDAR_WEIGHT} "
+        f"fng={cfg.FNG_WEIGHT} fund={cfg.FUNDING_WEIGHT}"
     )
 
     # Single call covers balance display AND position sync
@@ -209,26 +211,25 @@ def main():
         candles = client.get_candles(pair, args.timeframe, limit=100)
         return pair, candles
 
-    def process_pair(pair, candles, balance, news_scores, sm_scores, cal_score=0.0):
+    def process_pair(pair, candles, balance, news_scores, sm_scores, cal_score=0.0,
+                     fng_score=0.0, funding_scores=None, oi_scores=None, btc_candles=None):
         """Evaluate combined signal and execute orders for one pair."""
         if candles is None or len(candles) < 30:
             logger.warning(f"{pair}: not enough candle data, skipping")
             return
 
-        base        = pair.replace("USDT", "")
-        news_score  = news_scores.get(base, 0.0) if news_scores else 0.0
-        sm_score    = sm_scores.get(base, 0.0)   if sm_scores  else 0.0
+        base           = pair.replace("USDT", "")
+        news_score     = news_scores.get(base, 0.0)    if news_scores    else 0.0
+        sm_score       = sm_scores.get(base, 0.0)      if sm_scores      else 0.0
+        funding_score  = funding_scores.get(base, 0.0) if funding_scores else 0.0
 
         signal, confidence, reason = strategy.get_combined_signal(
-            candles, news_score, sm_score, cal_score
+            candles, news_score, sm_score, cal_score, fng_score, funding_score
         )
         current_price = candles["close"].iloc[-1]
         position      = client.get_position(pair)
 
-        logger.debug(
-            f"{pair} | price={current_price:.4f} | signal={signal} | "
-            f"conf={confidence:.2f} | {reason}"
-        )
+        logger.debug(f"{pair} | price={current_price:.4f} | signal={signal} | conf={confidence:.2f} | {reason}")
 
         # ---- News circuit breakers ----
         # If news is very bearish, block new buys regardless of technical signal
@@ -248,18 +249,35 @@ def main():
 
         # ---- BUY logic ----
         if signal == "buy" and position == 0:
-            # Check drawdown circuit breaker before any new buy
             if risk.check_drawdown(balance):
                 logger.info(f"{pair}: BUY blocked — drawdown circuit breaker active")
                 return
+
+            # BTC correlation filter — block ALT buys if BTC is dropping sharply
+            if not mkt_filters.check_btc_correlation(btc_candles, pair):
+                return
+
+            # Multi-timeframe confirmation
+            mtf_ok, confidence = mtf.check_alignment(pair, signal, confidence)
+            if not mtf_ok:
+                return
+
+            # Volatility filter — scale position size or skip entirely
+            vol_mult = mkt_filters.get_volatility_multiplier(candles)
+            if vol_mult == 0.0:
+                logger.info(f"{pair}: BUY skipped — extreme volatility")
+                return
+
             qty = risk.calculate_quantity(balance, current_price, pair, confidence)
             if qty and qty > 0:
+                qty = round(qty * vol_mult, 6)   # reduce size in high volatility
                 order = client.place_order(pair, "BUY", qty)
                 if order:
                     risk.record_entry(pair, current_price, qty)
+                    oi_note = f" oi={oi_scores.get(base, 0.0):+.2f}" if oi_scores else ""
                     logger.info(
                         f"BUY  {pair} | qty={qty} @ {current_price:.4f} | "
-                        f"conf={confidence:.0%} | news={news_score:+.3f}"
+                        f"conf={confidence:.0%} | vol_mult={vol_mult:.1f}{oi_note}"
                     )
 
         # ---- ADD-ON logic (pyramiding into existing position) ----
@@ -355,6 +373,11 @@ def main():
             calendar.log_active_events(events, score)
         return score, events
 
+    def fetch_market_filters():
+        fng      = mkt_filters.get_fear_greed_score()
+        funding  = mkt_filters.get_funding_scores()
+        return fng, funding
+
     try:
         while True:
             client.recycle_session()
@@ -368,16 +391,19 @@ def main():
             if buys_halted:
                 logger.info("Drawdown limit active — monitoring positions, no new buys this cycle")
 
-            # Fetch candles, news, smart money, and calendar simultaneously
+            # Fetch all signals in parallel
             candle_data  = {}
             news_scores  = {}
             sm_scores    = {}
             cal_score    = 0.0
+            fng_score    = 0.0
+            funding_scores = {}
 
-            with ThreadPoolExecutor(max_workers=len(args.pairs) + 3) as executor:
-                news_future = executor.submit(fetch_news)
-                sm_future   = executor.submit(fetch_smart_money)
-                cal_future  = executor.submit(fetch_calendar)
+            with ThreadPoolExecutor(max_workers=len(args.pairs) + 4) as executor:
+                news_future  = executor.submit(fetch_news)
+                sm_future    = executor.submit(fetch_smart_money)
+                cal_future   = executor.submit(fetch_calendar)
+                mkt_future   = executor.submit(fetch_market_filters)
                 candle_futures = {executor.submit(fetch_candles, p): p for p in args.pairs}
 
                 for future in as_completed(candle_futures):
@@ -390,22 +416,41 @@ def main():
                 try:
                     news_scores = news_future.result(timeout=12)
                 except Exception as e:
-                    logger.warning(f"News fetch error (continuing without): {e}")
+                    logger.warning(f"News fetch error: {e}")
 
                 try:
                     sm_scores = sm_future.result(timeout=12)
                 except Exception as e:
-                    logger.warning(f"Smart money fetch error (continuing without): {e}")
+                    logger.warning(f"Smart money fetch error: {e}")
 
                 try:
                     cal_score, _ = cal_future.result(timeout=12)
                 except Exception as e:
-                    logger.warning(f"Calendar fetch error (continuing without): {e}")
+                    logger.warning(f"Calendar fetch error: {e}")
+
+                try:
+                    fng_score, funding_scores = mkt_future.result(timeout=12)
+                except Exception as e:
+                    logger.warning(f"Market filters fetch error: {e}")
+
+            # Compute OI scores using latest prices from candles
+            current_prices = {
+                p.replace("USDT", ""): candle_data[p]["close"].iloc[-1]
+                for p in args.pairs if candle_data.get(p) is not None
+            }
+            oi_scores = mkt_filters.get_oi_scores(current_prices)
+
+            # Get BTC candles for correlation filter
+            btc_candles = candle_data.get("BTCUSDT")
 
             # Process signals sequentially (orders must not overlap)
             for pair in args.pairs:
                 try:
-                    process_pair(pair, candle_data.get(pair), balance, news_scores, sm_scores, cal_score)
+                    process_pair(
+                        pair, candle_data.get(pair), balance,
+                        news_scores, sm_scores, cal_score,
+                        fng_score, funding_scores, oi_scores, btc_candles
+                    )
                 except Exception as e:
                     logger.error(f"Error processing {pair}: {e}")
                     continue

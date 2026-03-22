@@ -21,7 +21,7 @@
     "time": "2026-03-22T12:15:28.541019",
     "addons": 1,
     "addon_qty": 24240.812692,
-    "peak_price": 0.0913
+    "peak_price": 0.09159
   },
   "BTCUSDT": {
     "price": 68646.57,
@@ -29,7 +29,7 @@
     "time": "2026-03-22T14:02:16.425533",
     "addons": 0,
     "addon_qty": 0.079496,
-    "peak_price": 68646.57
+    "peak_price": 68833.98
   },
   "ETHUSDT": {
     "price": 2076.62,
@@ -37,6 +37,6 @@
     "time": "2026-03-22T14:02:16.638750",
     "addons": 0,
     "addon_qty": 1.259442,
-    "peak_price": 2076.62
+    "peak_price": 2080.06
   }
 }

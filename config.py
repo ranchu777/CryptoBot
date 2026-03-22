@@ -86,18 +86,44 @@ class Config:
         self.DRAWDOWN_CIRCUIT_BREAKER    = True
         self.MAX_DRAWDOWN_PCT            = 5.0   # halt new buys after 5% session loss
 
+        # --- Fear & Greed Index ---
+        self.FNG_ENABLED   = True
+        self.FNG_CACHE_TTL = 3600    # update once per hour
+        self.FNG_WEIGHT    = 0.10    # contribution to combined signal
+
+        # --- Funding Rate ---
+        self.FUNDING_ENABLED   = True
+        self.FUNDING_CACHE_TTL = 900   # 15 min
+        self.FUNDING_WEIGHT    = 0.05
+
+        # --- Open Interest ---
+        self.OI_ENABLED   = True
+        self.OI_CACHE_TTL = 300      # 5 min
+
+        # --- Volatility filter (ATR-based) ---
+        self.VOLATILITY_FILTER_ENABLED = True
+        self.VOL_NORMAL_THRESHOLD      = 0.015   # ATR/price > 1.5% = reduced size
+        self.VOL_HIGH_THRESHOLD        = 0.030   # ATR/price > 3.0% = half size
+        self.VOL_EXTREME_THRESHOLD     = 0.050   # ATR/price > 5.0% = skip trade
+
+        # --- BTC Correlation filter ---
+        self.BTC_CORRELATION_FILTER = True
+        self.BTC_DROP_BLOCK_PCT     = 2.0   # block ALT buys if BTC drops 2% in 2 candles
+
+        # --- Multi-timeframe confirmation ---
+        self.MTF_ENABLED         = True
+        self.MTF_AGREE_THRESHOLD = 0.2   # 1h score must be > 0.2 for full buy confidence
+
         # --- Aggression & signal blending ---
         self.AGGRESSION = 1.5
 
         # Weight of each signal source — must sum to 1.0
-        # technical: price-based indicators (EMA, RSI, MACD, BB)
-        # news:      headline sentiment + FreeCryptoAPI price momentum
-        # smart_money: Binance top trader long/short positioning
-        # calendar:  economic events (Fed, CPI, NFP, GDP) from ForexFactory
-        self.TECHNICAL_WEIGHT   = 0.35
-        self.NEWS_WEIGHT        = 0.25
-        self.SMART_MONEY_WEIGHT = 0.25
-        self.CALENDAR_WEIGHT    = 0.15
+        self.TECHNICAL_WEIGHT   = 0.30
+        self.NEWS_WEIGHT        = 0.20
+        self.SMART_MONEY_WEIGHT = 0.20
+        self.CALENDAR_WEIGHT    = 0.10
+        self.FNG_WEIGHT         = 0.10
+        self.FUNDING_WEIGHT     = 0.10
 
         # Combined (boosted) score thresholds to trigger a trade
         self.BUY_THRESHOLD  = 0.25

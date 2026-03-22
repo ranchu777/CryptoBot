@@ -31,30 +31,29 @@ class Strategy:
 
     def get_combined_signal(
         self,
-        df: pd.DataFrame,
+        df,
         news_score: float = 0.0,
         smart_money_score: float = 0.0,
         calendar_score: float = 0.0,
-    ) -> tuple[str | None, float, str]:
-        """
-        Blend technical analysis, news sentiment, smart money positioning,
-        and economic calendar events into a single trading signal.
-        """
+        fng_score: float = 0.0,
+        funding_score: float = 0.0,
+    ) -> tuple:
         tech_score     = self._get_technical_score(df)
         momentum_score = self._momentum_score(df)
-        tech_w   = self.cfg.TECHNICAL_WEIGHT
-        news_w   = self.cfg.NEWS_WEIGHT
-        sm_w     = getattr(self.cfg, "SMART_MONEY_WEIGHT", 0.0)
-        cal_w    = getattr(self.cfg, "CALENDAR_WEIGHT", 0.0)
-        aggr     = self.cfg.AGGRESSION
 
-        # Normalise weights in case optional sources are disabled
-        total_w = tech_w + news_w + sm_w + cal_w
+        tech_w     = self.cfg.TECHNICAL_WEIGHT
+        news_w     = self.cfg.NEWS_WEIGHT
+        sm_w       = getattr(self.cfg, "SMART_MONEY_WEIGHT", 0.0)
+        cal_w      = getattr(self.cfg, "CALENDAR_WEIGHT",    0.0)
+        fng_w      = getattr(self.cfg, "FNG_WEIGHT",         0.0)
+        funding_w  = getattr(self.cfg, "FUNDING_WEIGHT",     0.0)
+        aggr       = self.cfg.AGGRESSION
+
+        # Normalise weights
+        total_w = tech_w + news_w + sm_w + cal_w + fng_w + funding_w
         if total_w > 0 and abs(total_w - 1.0) > 0.01:
-            tech_w /= total_w
-            news_w /= total_w
-            sm_w   /= total_w
-            cal_w  /= total_w
+            tech_w    /= total_w; news_w   /= total_w; sm_w      /= total_w
+            cal_w     /= total_w; fng_w    /= total_w; funding_w /= total_w
 
         if abs(momentum_score) > abs(tech_score):
             blended_tech = (tech_score + momentum_score) / 2
@@ -62,13 +61,14 @@ class Strategy:
             blended_tech = tech_score
 
         combined = (
-            blended_tech      * tech_w +
-            news_score        * news_w +
-            smart_money_score * sm_w   +
-            calendar_score    * cal_w
+            blended_tech      * tech_w    +
+            news_score        * news_w    +
+            smart_money_score * sm_w      +
+            calendar_score    * cal_w     +
+            fng_score         * fng_w     +
+            funding_score     * funding_w
         )
         combined_boosted = combined * aggr
-
         buy_threshold  = self.cfg.BUY_THRESHOLD  / aggr
         sell_threshold = self.cfg.SELL_THRESHOLD / aggr
 
@@ -85,16 +85,14 @@ class Strategy:
                 trend_note = f" trend_ema={trend_ema:.2f} ({pct_from:+.1f}%)"
             else:
                 trend_note = " trend_ema=insufficient data"
-        # ──────────────────────────────────────────────────────────────
 
         reason = (
-            f"tech={tech_score:+.3f} momentum={momentum_score:+.3f} "
+            f"tech={tech_score:+.3f} mom={momentum_score:+.3f} "
             f"news={news_score:+.3f} sm={smart_money_score:+.3f} "
-            f"cal={calendar_score:+.3f} combined={combined:+.3f} "
-            f"boosted={combined_boosted:+.3f} aggr={aggr}x"
-            f"{trend_note}"
+            f"cal={calendar_score:+.3f} fng={fng_score:+.3f} "
+            f"fund={funding_score:+.3f} combined={combined:+.3f} "
+            f"boosted={combined_boosted:+.3f} aggr={aggr}x{trend_note}"
         )
-
         confidence = min(1.0, abs(combined_boosted))
 
         if combined_boosted >= buy_threshold:
