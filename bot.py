@@ -288,15 +288,35 @@ def main():
         # ---- SELL / exit logic — SL/TP only ----
         elif position > 0:
             entry = risk.get_entry_price(pair)
-            sl = cfg.STOP_LOSS_PCT / 100
-            tp = cfg.TAKE_PROFIT_PCT / 100
+            sl    = cfg.STOP_LOSS_PCT / 100
+            tp    = cfg.TAKE_PROFIT_PCT / 100
 
-            # entry=0.0 means no price was recorded — skip price-based exits
-            hit_sl = entry > 0 and current_price <= entry * (1 - sl)
+            # Update peak price for trailing stop
+            if entry > 0:
+                risk.update_peak(pair, current_price)
+
+            # Fixed stop loss (always active until trailing takes over)
+            fixed_sl_price = entry * (1 - sl) if entry > 0 else 0.0
+
+            # Trailing stop (activates after +1% gain, trails 3% below peak)
+            trailing_sl_price = 0.0
+            if entry > 0 and getattr(cfg, "TRAILING_STOP_ENABLED", True):
+                trailing_sl_price = risk.get_trailing_stop(pair) or 0.0
+
+            # Once trailing is active it fully replaces the fixed stop
+            replace_fixed = getattr(cfg, "TRAILING_STOP_REPLACE_FIXED", True)
+            if trailing_sl_price > 0 and replace_fixed:
+                effective_sl  = trailing_sl_price
+                is_trailing   = True
+            else:
+                effective_sl  = fixed_sl_price
+                is_trailing   = False
+
+            hit_sl = effective_sl > 0 and current_price <= effective_sl
             hit_tp = entry > 0 and current_price >= entry * (1 + tp)
 
             reason_exit = None
-            if hit_sl:   reason_exit = "stop loss"
+            if hit_sl:   reason_exit = "trailing stop" if is_trailing else "stop loss"
             elif hit_tp: reason_exit = "take profit"
 
             if reason_exit:
@@ -310,10 +330,12 @@ def main():
                         f"conf={confidence:.0%} | news={news_score:+.3f}"
                     )
             else:
+                peak = risk._entries.get(pair, {}).get("peak_price", entry)
+                trail_str = f"{trailing_sl_price:.4f}" if trailing_sl_price else "inactive"
                 logger.debug(
-                    f"{pair} holding | entry={entry:.4f} | "
-                    f"sl={entry*(1-sl):.4f} | tp={entry*(1+tp):.4f} | "
-                    f"current={current_price:.4f}"
+                    f"{pair} holding | entry={entry:.4f} | peak={peak:.4f} | "
+                    f"fixed_sl={fixed_sl_price:.4f} | trail_sl={trail_str} | "
+                    f"tp={entry*(1+tp):.4f} | current={current_price:.4f}"
                 )
 
     def fetch_news():

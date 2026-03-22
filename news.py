@@ -283,7 +283,7 @@ class NewsSentiment:
                 logger.debug(f"News: {url} failed — {e}")
                 continue
 
-        logger.warning("News: all CryptoPanic API endpoints failed, falling back to RSS")
+        logger.info("News: CryptoPanic API unavailable, using RSS fallback")
         return self._fetch_rss_fallback()
 
     def _fetch_rss_fallback(self) -> list:

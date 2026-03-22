@@ -228,7 +228,13 @@ class SmartMoneyTracker:
 #  Binance Leaderboard tracker
 # ============================================================
 
-_LEADERBOARD_URL = "https://www.binance.com/bapi/futures/v3/public/future/leaderboard"
+_LEADERBOARD_URL = "https://www.binance.com/bapi/futures/v1/public/future/leaderboard"
+
+# Fallback URLs to try if the primary fails
+_LEADERBOARD_FALLBACKS = [
+    "https://www.binance.com/bapi/futures/v2/public/future/leaderboard",
+    "https://www.binance.com/bapi/futures/v3/public/future/leaderboard",
+]
 
 class LeaderboardTracker:
     """
@@ -240,13 +246,15 @@ class LeaderboardTracker:
     def __init__(self, cfg):
         self.cfg        = cfg
         self._cache     = {}
-        self._cache_ttl = getattr(cfg, "LEADERBOARD_CACHE_TTL", 1800)  # 30 min
+        self._cache_ttl = getattr(cfg, "LEADERBOARD_CACHE_TTL", 1800)
         self._top_n     = getattr(cfg, "LEADERBOARD_TOP_N", 10)
+        self._base_url  = _LEADERBOARD_URL   # updated if a fallback succeeds
         self.session    = requests.Session()
         self.session.headers.update({
-            "User-Agent":   "Mozilla/5.0",
+            "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Content-Type": "application/json",
             "Referer":      "https://www.binance.com/en/futures-activity/leaderboard",
+            "Origin":       "https://www.binance.com",
         })
 
     def get_scores(self) -> dict:
@@ -257,75 +265,94 @@ class LeaderboardTracker:
 
         traders = self._fetch_top_traders()
         if not traders:
-            logger.warning("Leaderboard: no traders fetched — returning neutral")
+            logger.debug("Leaderboard: no traders fetched — returning neutral")
             return {coin: 0.0 for coin in _FUTURES_SYMBOLS}
 
-        # Aggregate positions across all fetched traders
         coin_votes = {coin: [] for coin in _FUTURES_SYMBOLS}
+        positions_found = 0
 
         for trader in traders[:self._top_n]:
             uid = trader.get("encryptedUid", "")
             if not uid:
                 continue
+            # Only fetch positions from traders who share them publicly
+            if not trader.get("positionShared", False):
+                continue
             positions = self._fetch_trader_positions(uid)
             for pos in positions:
                 symbol = pos.get("symbol", "")
                 amount = float(pos.get("amount", 0) or 0)
-                # Match symbol to our coins
                 for coin, futures_sym in _FUTURES_SYMBOLS.items():
                     if symbol == futures_sym:
-                        # Positive amount = long, negative = short
                         coin_votes[coin].append(1.0 if amount > 0 else -1.0)
+                        positions_found += 1
 
         scores = {}
         for coin, votes in coin_votes.items():
-            if votes:
-                # Average vote: +1.0 if all long, -1.0 if all short
-                score = round(sum(votes) / len(votes), 4)
-            else:
-                score = 0.0
-            scores[coin] = score
-            self._cache[coin] = (score, now)
+            score = round(sum(votes) / len(votes), 4) if votes else 0.0
+            scores[coin]             = score
+            self._cache[coin]        = (score, now)
 
         logger.info(
-            f"Leaderboard: {len(traders)} traders sampled | "
+            f"Leaderboard: {len(traders)} traders | {positions_found} positions | "
             f"scores: { {k: f'{v:+.2f}' for k, v in scores.items()} }"
         )
         return scores
 
     def _fetch_top_traders(self) -> list:
-        """Fetch top traders by PnL from Binance leaderboard."""
+        """Fetch top traders by PnL — tries all URL versions."""
+        urls_to_try = [self._base_url] + [
+            u for u in _LEADERBOARD_FALLBACKS if u != self._base_url
+        ]
+        for base in urls_to_try:
+            result = self._try_fetch_rank(base)
+            if result is not None:
+                self._base_url = base   # remember the working URL
+                return result
+        return []
+
+    def _try_fetch_rank(self, base_url: str) -> list | None:
+        """Attempt to fetch leaderboard rank from a specific base URL."""
         try:
             r = self.session.post(
-                _LEADERBOARD_URL + "/getLeaderboardRank",
+                base_url + "/getLeaderboardRank",
                 json={
-                    "isShared":    True,
-                    "isTrader":    True,
-                    "periodType":  "WEEKLY",
+                    "isShared":       True,
+                    "isTrader":       True,
+                    "periodType":     "WEEKLY",
                     "statisticsType": "PNL",
+                    "tradeType":      "PERPETUAL",
                 },
                 timeout=10
             )
+            if r.status_code == 404:
+                return None
             r.raise_for_status()
-            data = r.json()
+            data    = r.json()
             traders = data.get("data") or []
-            logger.debug(f"Leaderboard: fetched {len(traders)} top traders")
-            return traders
+            if traders:
+                logger.debug(f"Leaderboard: {base_url} returned {len(traders)} traders")
+                return traders
+            return None
         except Exception as e:
-            logger.warning(f"Leaderboard: fetch top traders failed — {e}")
-            return []
+            logger.debug(f"Leaderboard: {base_url} failed — {e}")
+            return None
 
     def _fetch_trader_positions(self, uid: str) -> list:
         """Fetch open positions for a specific trader UID."""
         try:
             r = self.session.post(
-                _LEADERBOARD_URL + "/getOtherPosition",
+                self._base_url + "/getOtherPosition",
                 json={"encryptedUid": uid, "tradeType": "PERPETUAL"},
                 timeout=8
             )
             r.raise_for_status()
             data = r.json()
-            return data.get("data", {}).get("otherPositionRetList") or []
+            return (
+                data.get("data", {}).get("otherPositionRetList") or
+                data.get("data", {}).get("perpetual") or
+                []
+            )
         except Exception as e:
-            logger.debug(f"Leaderboard: positions for {uid} failed — {e}")
+            logger.debug(f"Leaderboard: positions for {uid[:8]}... failed — {e}")
             return []

@@ -60,6 +60,13 @@ class Config:
         self.STOP_LOSS_PCT    = 3.0   # exit if price drops 3%
         self.TAKE_PROFIT_PCT  = 8.0   # exit if price rises 8%
 
+        # --- Trailing stop loss ---
+        # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
+        # switches to trailing mode — fixed stop is replaced entirely.
+        self.TRAILING_STOP_ENABLED        = True
+        self.TRAILING_STOP_ACTIVATION_PCT = 1.0   # trailing activates after +1% gain
+        self.TRAILING_STOP_REPLACE_FIXED  = True   # replace fixed stop once trailing is active
+
         # Max open positions at once
         self.MAX_POSITIONS = 6
 
@@ -96,13 +103,18 @@ class Config:
         self.SMART_MONEY_ENABLED   = True
         self.SMART_MONEY_CACHE_TTL = 900   # 15 minutes
         # Weight split within the smart money signal
-        self.LS_RATIO_WEIGHT       = 0.5   # 50% from long/short ratio
-        self.LEADERBOARD_WEIGHT    = 0.5   # 50% from leaderboard positions
+        # Leaderboard is disabled by default — Binance blocks direct API access to it.
+        # The L/S ratio uses the official public Futures API and works reliably.
+        self.LS_RATIO_WEIGHT       = 1.0   # 100% from long/short ratio
+        self.LEADERBOARD_WEIGHT    = 0.0   # disabled
 
         # --- Leaderboard tracker ---
-        self.LEADERBOARD_ENABLED   = True
-        self.LEADERBOARD_TOP_N     = 10    # follow top 10 traders by weekly PnL
-        self.LEADERBOARD_CACHE_TTL = 1800  # 30 minutes
+        # NOTE: Binance does not expose leaderboard data through a public API.
+        # The internal endpoint is blocked for programmatic access.
+        # Set to True only if you are routing through a proxy that can access it.
+        self.LEADERBOARD_ENABLED   = False
+        self.LEADERBOARD_TOP_N     = 10
+        self.LEADERBOARD_CACHE_TTL = 1800
 
         # --- Pyramiding (position scaling) ---
         # Allow adding to a winning position when signal confidence stays high.

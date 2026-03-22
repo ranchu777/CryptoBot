@@ -41,13 +41,14 @@ class RiskManager:
                 saved = json.load(f)
             for symbol, data in saved.items():
                 self._entries[symbol] = {
-                    "price":     float(data["price"]),
-                    "qty":       float(data["qty"]),
-                    "time":      data.get("time", ""),
-                    "synced":    False,
-                    "known":     True,
-                    "addons":    int(data.get("addons", 0)),
-                    "addon_qty": float(data.get("addon_qty", data["qty"])),
+                    "price":      float(data["price"]),
+                    "qty":        float(data["qty"]),
+                    "time":       data.get("time", ""),
+                    "synced":     False,
+                    "known":      True,
+                    "addons":     int(data.get("addons", 0)),
+                    "addon_qty":  float(data.get("addon_qty", data["qty"])),
+                    "peak_price": float(data.get("peak_price", data["price"])),
                 }
             if self._entries:
                 logger.info(f"Loaded {len(self._entries)} saved positions: {list(self._entries.keys())}")
@@ -58,11 +59,12 @@ class RiskManager:
         """Write current known entry prices to disk."""
         to_save = {
             sym: {
-                "price":     e["price"],
-                "qty":       e["qty"],
-                "time":      e.get("time", ""),
-                "addons":    e.get("addons", 0),
-                "addon_qty": e.get("addon_qty", e["qty"]),
+                "price":      e["price"],
+                "qty":        e["qty"],
+                "time":       e.get("time", ""),
+                "addons":     e.get("addons", 0),
+                "addon_qty":  e.get("addon_qty", e["qty"]),
+                "peak_price": e.get("peak_price", e["price"]),
             }
             for sym, e in self._entries.items()
             if e.get("known", False)
@@ -143,19 +145,60 @@ class RiskManager:
         """
         known = not synced
         self._entries[symbol] = {
-            "price":    price,        # average entry price (updated on add-ons)
-            "qty":      qty,          # total quantity held
-            "time":     datetime.utcnow().isoformat(),
-            "synced":   synced,
-            "known":    known,
-            "addons":   0,            # number of add-on buys so far
-            "addon_qty": qty,         # qty of the original entry (used to size add-ons)
+            "price":      price,
+            "qty":        qty,
+            "time":       datetime.utcnow().isoformat(),
+            "synced":     synced,
+            "known":      known,
+            "addons":     0,
+            "addon_qty":  qty,
+            "peak_price": price,   # highest price seen since entry — for trailing stop
         }
         if known:
             self._save_positions()
             logger.debug(f"Entry saved: {symbol} @ {price:.4f} x {qty}")
         else:
             logger.debug(f"Entry synced (unknown buy price): {symbol} @ {price:.4f} x {qty}")
+
+    def update_peak(self, symbol: str, current_price: float):
+        """
+        Update the highest price seen since entry for trailing stop calculation.
+        Call every cycle for open positions.
+        """
+        entry = self._entries.get(symbol)
+        if entry and current_price > entry.get("peak_price", 0):
+            entry["peak_price"] = current_price
+            # Persist so peak survives restarts — only save when peak actually moves
+            if entry.get("known", False):
+                self._save_positions()
+
+    def get_trailing_stop(self, symbol: str) -> float | None:
+        """
+        Return the trailing stop price for a position, or None if not yet active.
+
+        The trailing stop activates only after price gains TRAILING_STOP_ACTIVATION_PCT
+        above the entry price (default +2%). Once active, it sits STOP_LOSS_PCT% below
+        the peak price seen since entry.
+
+        Returns None if:
+          - No entry recorded
+          - Entry price unknown (synced position)
+          - Price hasn't gained enough to activate the trailing stop yet
+        """
+        entry = self._entries.get(symbol)
+        if not entry or not entry.get("known", False):
+            return None
+
+        entry_price  = entry["price"]
+        peak_price   = entry.get("peak_price", entry_price)
+        activation   = getattr(self.cfg, "TRAILING_STOP_ACTIVATION_PCT", 2.0) / 100
+        trail_pct    = self.cfg.STOP_LOSS_PCT / 100
+
+        # Only activate after sufficient gain from entry
+        if peak_price < entry_price * (1 + activation):
+            return None
+
+        return round(peak_price * (1 - trail_pct), 8)
 
     def can_add_to_position(self, symbol: str) -> bool:
         """
