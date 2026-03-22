@@ -33,50 +33,60 @@ class Strategy:
         self,
         df: pd.DataFrame,
         news_score: float = 0.0,
+        smart_money_score: float = 0.0,
     ) -> tuple[str | None, float, str]:
         """
-        Blend technical analysis with news sentiment to produce a final signal.
-        Also checks for momentum candles (fast % moves) that lagging indicators miss.
-        Applies trend filter — no buys when price is below the 200 EMA.
+        Blend technical analysis, news sentiment, and smart money positioning.
+        Also applies trend filter and momentum detection.
         """
         tech_score     = self._get_technical_score(df)
         momentum_score = self._momentum_score(df)
-        news_w  = self.cfg.NEWS_WEIGHT
-        tech_w  = self.cfg.TECHNICAL_WEIGHT
-        aggr    = self.cfg.AGGRESSION
+        tech_w   = self.cfg.TECHNICAL_WEIGHT
+        news_w   = self.cfg.NEWS_WEIGHT
+        sm_w     = getattr(self.cfg, "SMART_MONEY_WEIGHT", 0.0)
+        aggr     = self.cfg.AGGRESSION
+
+        # Normalise weights in case smart money is disabled
+        if sm_w == 0.0:
+            # Redistribute smart money weight back to technical and news
+            total = tech_w + news_w
+            tech_w = tech_w / total
+            news_w = news_w / total
 
         if abs(momentum_score) > abs(tech_score):
             blended_tech = (tech_score + momentum_score) / 2
         else:
             blended_tech = tech_score
 
-        combined         = blended_tech * tech_w + news_score * news_w
+        combined = (
+            blended_tech      * tech_w +
+            news_score        * news_w +
+            smart_money_score * sm_w
+        )
         combined_boosted = combined * aggr
 
         buy_threshold  = self.cfg.BUY_THRESHOLD  / aggr
         sell_threshold = self.cfg.SELL_THRESHOLD / aggr
 
         # ── Trend filter ───────────────────────────────────────────────
-        # Block buy signals when price is below the 200-period EMA.
-        # This prevents buying into sustained downtrends (e.g. a -10% day).
-        trend_ok     = True
-        trend_note   = ""
+        trend_ok   = True
+        trend_note = ""
         if getattr(self.cfg, "TREND_FILTER_ENABLED", True):
-            period   = getattr(self.cfg, "TREND_EMA_PERIOD", 200)
+            period = getattr(self.cfg, "TREND_EMA_PERIOD", 200)
             if len(df) >= period:
-                trend_ema   = df["close"].ewm(span=period, adjust=False).mean().iloc[-1]
-                current     = df["close"].iloc[-1]
-                trend_ok    = current >= trend_ema
-                pct_from    = (current - trend_ema) / trend_ema * 100
-                trend_note  = f" trend_ema={trend_ema:.2f} ({pct_from:+.1f}%)"
+                trend_ema  = df["close"].ewm(span=period, adjust=False).mean().iloc[-1]
+                current    = df["close"].iloc[-1]
+                trend_ok   = current >= trend_ema
+                pct_from   = (current - trend_ema) / trend_ema * 100
+                trend_note = f" trend_ema={trend_ema:.2f} ({pct_from:+.1f}%)"
             else:
                 trend_note = " trend_ema=insufficient data"
         # ──────────────────────────────────────────────────────────────
 
         reason = (
             f"tech={tech_score:+.3f} momentum={momentum_score:+.3f} "
-            f"news={news_score:+.3f} combined={combined:+.3f} "
-            f"boosted={combined_boosted:+.3f} aggr={aggr}x"
+            f"news={news_score:+.3f} sm={smart_money_score:+.3f} "
+            f"combined={combined:+.3f} boosted={combined_boosted:+.3f} aggr={aggr}x"
             f"{trend_note}"
         )
 
@@ -84,7 +94,6 @@ class Strategy:
 
         if combined_boosted >= buy_threshold:
             if not trend_ok:
-                # Signal is buy but price is below trend EMA — suppress
                 return None, confidence, reason + " [TREND FILTER: buy blocked]"
             return "buy", confidence, reason
         if combined_boosted <= -sell_threshold:

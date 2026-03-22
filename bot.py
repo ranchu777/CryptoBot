@@ -22,6 +22,7 @@ from exchange import BinanceClient
 from strategy import Strategy
 from risk import RiskManager
 from news import NewsSentiment
+from smart_money import SmartMoneyTracker
 from logger import setup_logger
 
 def parse_args():
@@ -124,16 +125,18 @@ def main():
         cfg.AGGRESSION = args.aggression
         logger.info(f"Aggression overridden to {cfg.AGGRESSION}")
 
-    client   = BinanceClient(cfg)
-    strategy = Strategy(name=args.strategy, cfg=cfg)
-    risk     = RiskManager(cfg)
-    news     = NewsSentiment(cfg) if not args.no_news else None
+    client      = BinanceClient(cfg)
+    strategy    = Strategy(name=args.strategy, cfg=cfg)
+    risk        = RiskManager(cfg)
+    news        = NewsSentiment(cfg) if not args.no_news else None
+    smart_money = SmartMoneyTracker(cfg) if cfg.SMART_MONEY_ENABLED else None
 
     logger.info(
         f"Mode: aggression={cfg.AGGRESSION} | "
-        f"tech_weight={cfg.TECHNICAL_WEIGHT} | "
-        f"news_weight={cfg.NEWS_WEIGHT if news else 0.0} | "
-        f"news={'ON' if news else 'OFF'}"
+        f"weights: tech={cfg.TECHNICAL_WEIGHT} news={cfg.NEWS_WEIGHT} "
+        f"sm={cfg.SMART_MONEY_WEIGHT if smart_money else 0.0} | "
+        f"news={'ON' if news else 'OFF'} | "
+        f"smart_money={'ON' if smart_money else 'OFF'}"
     )
 
     # Single call covers balance display AND position sync
@@ -203,18 +206,21 @@ def main():
         candles = client.get_candles(pair, args.timeframe, limit=100)
         return pair, candles
 
-    def process_pair(pair, candles, balance, news_scores):
+    def process_pair(pair, candles, balance, news_scores, sm_scores):
         """Evaluate combined signal and execute orders for one pair."""
         if candles is None or len(candles) < 30:
             logger.warning(f"{pair}: not enough candle data, skipping")
             return
 
-        base = pair.replace("USDT", "")
-        news_score = news_scores.get(base, 0.0) if news_scores else 0.0
+        base        = pair.replace("USDT", "")
+        news_score  = news_scores.get(base, 0.0) if news_scores else 0.0
+        sm_score    = sm_scores.get(base, 0.0)   if sm_scores  else 0.0
 
-        signal, confidence, reason = strategy.get_combined_signal(candles, news_score)
+        signal, confidence, reason = strategy.get_combined_signal(
+            candles, news_score, sm_score
+        )
         current_price = candles["close"].iloc[-1]
-        position = client.get_position(pair)
+        position      = client.get_position(pair)
 
         logger.debug(
             f"{pair} | price={current_price:.4f} | signal={signal} | "
@@ -313,6 +319,9 @@ def main():
     def fetch_news():
         return news.get_scores() if news else {}
 
+    def fetch_smart_money():
+        return smart_money.get_scores() if smart_money else {}
+
     try:
         while True:
             client.recycle_session()
@@ -326,12 +335,14 @@ def main():
             if buys_halted:
                 logger.info("Drawdown limit active — monitoring positions, no new buys this cycle")
 
-            # Fetch candles AND news simultaneously in parallel
+            # Fetch candles, news, and smart money simultaneously
             candle_data  = {}
             news_scores  = {}
+            sm_scores    = {}
 
-            with ThreadPoolExecutor(max_workers=len(args.pairs) + 1) as executor:
-                news_future    = executor.submit(fetch_news)
+            with ThreadPoolExecutor(max_workers=len(args.pairs) + 2) as executor:
+                news_future = executor.submit(fetch_news)
+                sm_future   = executor.submit(fetch_smart_money)
                 candle_futures = {executor.submit(fetch_candles, p): p for p in args.pairs}
 
                 for future in as_completed(candle_futures):
@@ -345,12 +356,16 @@ def main():
                     news_scores = news_future.result(timeout=12)
                 except Exception as e:
                     logger.warning(f"News fetch error (continuing without): {e}")
-                    news_scores = {}
+
+                try:
+                    sm_scores = sm_future.result(timeout=12)
+                except Exception as e:
+                    logger.warning(f"Smart money fetch error (continuing without): {e}")
 
             # Process signals sequentially (orders must not overlap)
             for pair in args.pairs:
                 try:
-                    process_pair(pair, candle_data.get(pair), balance, news_scores)
+                    process_pair(pair, candle_data.get(pair), balance, news_scores, sm_scores)
                 except Exception as e:
                     logger.error(f"Error processing {pair}: {e}")
                     continue

@@ -80,21 +80,29 @@ class Config:
         self.MAX_DRAWDOWN_PCT            = 5.0   # halt new buys after 5% session loss
 
         # --- Aggression & signal blending ---
-        # AGGRESSION controls how boldly the bot acts.
-        #   0.5 = conservative (only very strong signals trigger trades)
-        #   1.0 = balanced
-        #   1.5 = bold (acts on weaker signals, scales position size up)
-        #   2.0 = aggressive (trades frequently, higher risk/reward)
         self.AGGRESSION = 1.5
 
-        # Weight of each signal source in the combined decision (must sum to 1.0)
-        self.TECHNICAL_WEIGHT = 0.65
-        self.NEWS_WEIGHT      = 0.35
+        # Weight of each signal source — must sum to 1.0
+        # Smart money now carries significant weight given two strong sources
+        self.TECHNICAL_WEIGHT   = 0.40
+        self.NEWS_WEIGHT        = 0.25
+        self.SMART_MONEY_WEIGHT = 0.35   # 35% — top trader L/S ratio + leaderboard
 
         # Combined (boosted) score thresholds to trigger a trade
-        # Lower = more trades. Higher = fewer but higher-conviction trades.
-        self.BUY_THRESHOLD  = 0.25   # boosted score >= this → BUY
-        self.SELL_THRESHOLD = 0.25   # boosted score <= -this → SELL
+        self.BUY_THRESHOLD  = 0.25
+        self.SELL_THRESHOLD = 0.25
+
+        # --- Smart money (top trader long/short ratio) ---
+        self.SMART_MONEY_ENABLED   = True
+        self.SMART_MONEY_CACHE_TTL = 900   # 15 minutes
+        # Weight split within the smart money signal
+        self.LS_RATIO_WEIGHT       = 0.5   # 50% from long/short ratio
+        self.LEADERBOARD_WEIGHT    = 0.5   # 50% from leaderboard positions
+
+        # --- Leaderboard tracker ---
+        self.LEADERBOARD_ENABLED   = True
+        self.LEADERBOARD_TOP_N     = 10    # follow top 10 traders by weekly PnL
+        self.LEADERBOARD_CACHE_TTL = 1800  # 30 minutes
 
         # --- Pyramiding (position scaling) ---
         # Allow adding to a winning position when signal confidence stays high.
