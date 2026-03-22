@@ -201,10 +201,12 @@ class Config:
         self.DEFAULT_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT"]
 
         # Minimum order sizes on Binance (USDT notional)
+        # Binance requires ~$5 minimum per order — these are set conservatively higher
+        # to avoid partial fills and dust, but low enough to work with small accounts
         self.MIN_ORDER_USDT = {
-            "BTCUSDT":  1000,
-            "ETHUSDT":  1000,
-            "SOLUSDT":  500,
-            "BNBUSDT":  500,
-            "DOGEUSDT": 500,
+            "BTCUSDT":  10,
+            "ETHUSDT":  10,
+            "SOLUSDT":  10,
+            "BNBUSDT":  10,
+            "DOGEUSDT": 10,
         }

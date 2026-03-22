@@ -99,41 +99,41 @@ class Backtester:
     def run(self, df: pd.DataFrame, symbol: str, initial_balance: float = 10_000.0) -> dict:
         """
         Simulate the strategy on historical candles.
-        Uses a rolling window of 100 candles to feed into the strategy,
-        then simulates buy/sell at the next candle's open price.
+        Uses a rolling window of 250 candles (enough for the 200 EMA trend filter).
+        Executes at the next candle's open price to avoid lookahead bias.
         """
-        if len(df) < 120:
-            return {"error": f"Not enough data ({len(df)} candles, need 120+)"}
+        lookback = 250  # must exceed TREND_EMA_PERIOD (200) so trend filter has data
+
+        if len(df) < lookback + 10:
+            return {"error": f"Not enough data ({len(df)} candles, need {lookback + 10}+)"}
 
         balance       = initial_balance
-        position      = 0.0       # qty held
+        position      = 0.0
         entry_price   = 0.0
         peak_price    = 0.0
         trades        = []
         equity_curve  = [initial_balance]
-        lookback      = 100
+        signal_counts = {"buy": 0, "sell": 0, "none": 0, "trend_blocked": 0}
 
-        sl_pct = self.cfg.STOP_LOSS_PCT / 100
-        tp_pct = self.cfg.TAKE_PROFIT_PCT / 100
+        sl_pct           = self.cfg.STOP_LOSS_PCT / 100
+        tp_pct           = self.cfg.TAKE_PROFIT_PCT / 100
         trail_activation = self.cfg.TRAILING_STOP_ACTIVATION_PCT / 100
 
         for i in range(lookback, len(df) - 1):
-            window       = df.iloc[i - lookback:i].copy()
+            window        = df.iloc[i - lookback:i].copy()
             current_price = df["close"].iloc[i]
-            next_open     = df["open"].iloc[i + 1]   # execution price = next candle open
+            next_open     = df["open"].iloc[i + 1]
 
-            # Update peak for trailing stop
             if position > 0 and current_price > peak_price:
                 peak_price = current_price
 
             # ── Exit logic ──────────────────────────────────────────
             if position > 0:
-                # Trailing stop
-                trail_sl = None
+                trail_sl      = None
+                replace_fixed = getattr(self.cfg, "TRAILING_STOP_REPLACE_FIXED", True)
                 if peak_price >= entry_price * (1 + trail_activation):
                     trail_sl = peak_price * (1 - sl_pct)
 
-                replace_fixed = getattr(self.cfg, "TRAILING_STOP_REPLACE_FIXED", True)
                 if trail_sl and replace_fixed:
                     effective_sl = trail_sl
                 else:
@@ -147,30 +147,41 @@ class Backtester:
                     exit_price = next_open
                     pnl        = (exit_price - entry_price) * position
                     balance   += position * exit_price
+                    is_trail   = hit_sl and trail_sl and trail_sl > entry_price * (1 - sl_pct)
                     trades.append({
                         "type":        "sell",
-                        "reason":      "trailing_stop" if (hit_sl and trail_sl and trail_sl > entry_price*(1-sl_pct)) else ("stop_loss" if hit_sl else "take_profit"),
+                        "reason":      "trailing_stop" if is_trail else ("stop_loss" if hit_sl else "take_profit"),
                         "entry_price": entry_price,
                         "exit_price":  exit_price,
                         "qty":         position,
                         "pnl":         round(pnl, 4),
                         "candle":      i,
                     })
-                    position   = 0.0
+                    position    = 0.0
                     entry_price = 0.0
                     peak_price  = 0.0
                     equity_curve.append(round(balance, 2))
                     continue
 
             # ── Signal ──────────────────────────────────────────────
-            signal, confidence, _ = self.strategy.get_combined_signal(window)
+            signal, confidence, reason = self.strategy.get_combined_signal(window)
+            trend_blocked = "TREND FILTER" in reason
+
+            if trend_blocked:
+                signal_counts["trend_blocked"] += 1
+            elif signal == "buy":
+                signal_counts["buy"] += 1
+            elif signal == "sell":
+                signal_counts["sell"] += 1
+            else:
+                signal_counts["none"] += 1
 
             # ── Buy ─────────────────────────────────────────────────
-            if signal == "buy" and position == 0 and balance > self.cfg.MIN_RESERVE_USDT:
+            if signal == "buy" and not trend_blocked and position == 0 and balance > self.cfg.MIN_RESERVE_USDT:
                 size_pct = self.cfg.POSITION_SIZE_PCT / 100
                 if getattr(self.cfg, "SCALE_SIZE_WITH_CONFIDENCE", False):
                     size_pct = min(size_pct * self.cfg.AGGRESSION * max(0.3, confidence), 0.25)
-                usdt_to_use = (balance - self.cfg.MIN_RESERVE_USDT) * size_pct
+                usdt_to_use  = (balance - self.cfg.MIN_RESERVE_USDT) * size_pct
                 min_notional = self.cfg.MIN_ORDER_USDT.get(symbol, 10)
                 if usdt_to_use >= min_notional:
                     qty         = usdt_to_use / next_open
@@ -245,7 +256,8 @@ class Backtester:
             "profit_factor":   round(profit_factor, 2),
             "max_drawdown":    round(max_dd * 100, 2),
             "sharpe":          round(sharpe, 3),
-            "equity_curve":    equity_curve[::10],   # downsample for JSON
+            "signal_counts":   signal_counts,
+            "equity_curve":    equity_curve[::10],
             "trades":          trades,
         }
 
@@ -274,9 +286,21 @@ def print_results(r: dict):
     print(f"  Max drawdown:  {r['max_drawdown']:.2f}%")
     print(f"  Sharpe ratio:  {r['sharpe']:.3f}")
 
-    # Trade breakdown by reason
-    sells = [t for t in r["trades"] if t["type"] == "sell" and "pnl" in t]
+    sc = r.get("signal_counts", {})
+    if sc:
+        print(f"  {'─'*45}")
+        print(f"  Signal breakdown:")
+        print(f"    Buy signals:        {sc.get('buy', 0)}")
+        print(f"    Sell signals:       {sc.get('sell', 0)}")
+        print(f"    Neutral:            {sc.get('none', 0)}")
+        print(f"    Trend filter blocked: {sc.get('trend_blocked', 0)}")
+        if sc.get('trend_blocked', 0) > 0 and sc.get('buy', 0) == 0:
+            print(f"  ⚠  All buy signals were blocked by the 200 EMA trend filter.")
+            print(f"     The market was in a downtrend for this entire period.")
+            print(f"     Try --days 30 for a recent period, or disable the trend filter")
+            print(f"     in config.py (TREND_FILTER_ENABLED = False) to see raw signals.")
     by_reason = {}
+    sells = [t for t in r["trades"] if t["type"] == "sell" and "pnl" in t]
     for t in sells:
         reason = t.get("reason", "unknown")
         by_reason.setdefault(reason, {"count": 0, "pnl": 0})
@@ -298,38 +322,91 @@ def main():
     p.add_argument("--strategy",   default="ema", choices=["ema","rsi","bb","macd"])
     p.add_argument("--timeframe",  default="5m",  choices=["1m","5m","15m","1h"])
     p.add_argument("--aggression", type=float, default=None)
-    p.add_argument("--balance",    type=float, default=10_000.0, help="Starting balance (default: 10000)")
-    p.add_argument("--output",     default="backtest_results.json")
+    p.add_argument("--balance",       type=float, default=10_000.0, help="Starting balance (default: 10000)")
+    p.add_argument("--output",        default="backtest_results.json")
+    p.add_argument("--no-trend-filter", action="store_true",
+                   help="Disable 200 EMA trend filter (shows raw signals in downtrends)")
     args = p.parse_args()
 
-    cfg = Config(testnet=False)   # use public API for historical data
+    cfg = Config(testnet=False)
     if args.aggression is not None:
         cfg.AGGRESSION = args.aggression
+    if args.no_trend_filter:
+        cfg.TREND_FILTER_ENABLED = False
+        print("  ⚠  Trend filter disabled — buys allowed in downtrends")
     strategy = Strategy(name=args.strategy, cfg=cfg)
 
     pairs = DEFAULT_PAIRS if args.all_pairs else [args.pair.upper()]
     bt    = Backtester(cfg, strategy)
-    all_results = []
+
+    # Config snapshot — saved with results so dashboard can tell runs apart
+    run_config = {
+        "strategy":   args.strategy.upper(),
+        "timeframe":  args.timeframe,
+        "days":       args.days,
+        "aggression": cfg.AGGRESSION,
+        "sl_pct":     cfg.STOP_LOSS_PCT,
+        "tp_pct":     cfg.TAKE_PROFIT_PCT,
+        "run_at":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
     print(f"\nCryptoBot Backtester")
     print(f"Strategy: {args.strategy.upper()} | Timeframe: {args.timeframe} | Days: {args.days} | Aggression: {cfg.AGGRESSION}")
     print(f"Starting balance: ${args.balance:,.2f}\n")
 
+    all_results = []
     for pair in pairs:
         df = fetch_historical_candles(pair, args.timeframe, args.days)
         if df.empty:
             print(f"  {pair}: no data, skipping")
             continue
         result = bt.run(df, pair, args.balance)
-        print_results(result)
-        all_results.append(result)
+        result["config"] = run_config
 
-    # Save results
-    with open(args.output, "w") as f:
-        json.dump(all_results, f, indent=2)
-    print(f"Results saved to {args.output}\n")
+        # Auto-rerun without trend filter if it blocked everything
+        sc = result.get("signal_counts", {})
+        if result["total_trades"] == 0 and sc.get("trend_blocked", 0) > 0:
+            print(f"\n  ⚠  0 trades — {sc['trend_blocked']} buy signals blocked by 200 EMA trend filter")
+            print(f"     This period is a downtrend. Auto-running without trend filter for comparison...\n")
+            cfg_no_tf = Config(testnet=False)
+            if args.aggression is not None:
+                cfg_no_tf.AGGRESSION = args.aggression
+            cfg_no_tf.TREND_FILTER_ENABLED = False
+            bt_no_tf     = Backtester(cfg_no_tf, Strategy(name=args.strategy, cfg=cfg_no_tf))
+            result_no_tf = bt_no_tf.run(df, pair, args.balance)
+            result_no_tf["config"] = {**run_config, "note": "no trend filter"}
+            result["config"]       = {**run_config, "note": f"⚠ trend filter blocked {sc['trend_blocked']} signals"}
+            print_results(result)
+            print(f"  ── Comparison: same config, trend filter OFF ──")
+            print_results(result_no_tf)
+            all_results.append(result)
+            all_results.append(result_no_tf)
+        else:
+            print_results(result)
+            all_results.append(result)
 
-    # Summary across all pairs
+    # Append this run to the history file (keep last 20 runs)
+    history_file = args.output
+    history = []
+    try:
+        with open(history_file, "r") as f:
+            existing = json.load(f)
+            # Support both old format (list of results) and new (list of runs)
+            if existing and isinstance(existing[0], list):
+                history = existing          # already grouped by run
+            elif existing and isinstance(existing[0], dict):
+                history = [existing]        # old flat format — wrap as one run
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    history.append(all_results)
+    history = history[-20:]   # keep last 20 runs
+
+    with open(history_file, "w") as f:
+        json.dump(history, f, indent=2)
+    print(f"Results appended to {history_file} ({len(history)} runs stored)\n")
+
+    # Print combined summary if multiple pairs
     if len(all_results) > 1:
         total_pnl = sum(r["total_pnl"] for r in all_results)
         avg_wr    = sum(r["win_rate"] for r in all_results) / len(all_results)
@@ -340,6 +417,8 @@ def main():
         print(f"  Avg win rate:  {avg_wr:.1f}%")
         print(f"  Avg drawdown:  {avg_dd:.2f}%")
         print(f"{'='*55}\n")
+
+    print(f"Run dashboard.py to visualise results.")
 
 
 if __name__ == "__main__":
