@@ -23,6 +23,7 @@ from strategy import Strategy
 from risk import RiskManager
 from news import NewsSentiment
 from smart_money import SmartMoneyTracker
+from calendar_events import EconomicCalendar
 from logger import setup_logger
 
 def parse_args():
@@ -130,13 +131,15 @@ def main():
     risk        = RiskManager(cfg)
     news        = NewsSentiment(cfg) if not args.no_news else None
     smart_money = SmartMoneyTracker(cfg) if cfg.SMART_MONEY_ENABLED else None
+    calendar    = EconomicCalendar(cfg) if cfg.CALENDAR_ENABLED else None
 
     logger.info(
         f"Mode: aggression={cfg.AGGRESSION} | "
         f"weights: tech={cfg.TECHNICAL_WEIGHT} news={cfg.NEWS_WEIGHT} "
-        f"sm={cfg.SMART_MONEY_WEIGHT if smart_money else 0.0} | "
+        f"sm={cfg.SMART_MONEY_WEIGHT} cal={cfg.CALENDAR_WEIGHT} | "
         f"news={'ON' if news else 'OFF'} | "
-        f"smart_money={'ON' if smart_money else 'OFF'}"
+        f"smart_money={'ON' if smart_money else 'OFF'} | "
+        f"calendar={'ON' if calendar else 'OFF'}"
     )
 
     # Single call covers balance display AND position sync
@@ -206,7 +209,7 @@ def main():
         candles = client.get_candles(pair, args.timeframe, limit=100)
         return pair, candles
 
-    def process_pair(pair, candles, balance, news_scores, sm_scores):
+    def process_pair(pair, candles, balance, news_scores, sm_scores, cal_score=0.0):
         """Evaluate combined signal and execute orders for one pair."""
         if candles is None or len(candles) < 30:
             logger.warning(f"{pair}: not enough candle data, skipping")
@@ -217,7 +220,7 @@ def main():
         sm_score    = sm_scores.get(base, 0.0)   if sm_scores  else 0.0
 
         signal, confidence, reason = strategy.get_combined_signal(
-            candles, news_score, sm_score
+            candles, news_score, sm_score, cal_score
         )
         current_price = candles["close"].iloc[-1]
         position      = client.get_position(pair)
@@ -344,6 +347,14 @@ def main():
     def fetch_smart_money():
         return smart_money.get_scores() if smart_money else {}
 
+    def fetch_calendar():
+        if not calendar:
+            return 0.0, []
+        score, events = calendar.get_score()
+        if events:
+            calendar.log_active_events(events, score)
+        return score, events
+
     try:
         while True:
             client.recycle_session()
@@ -357,14 +368,16 @@ def main():
             if buys_halted:
                 logger.info("Drawdown limit active — monitoring positions, no new buys this cycle")
 
-            # Fetch candles, news, and smart money simultaneously
+            # Fetch candles, news, smart money, and calendar simultaneously
             candle_data  = {}
             news_scores  = {}
             sm_scores    = {}
+            cal_score    = 0.0
 
-            with ThreadPoolExecutor(max_workers=len(args.pairs) + 2) as executor:
+            with ThreadPoolExecutor(max_workers=len(args.pairs) + 3) as executor:
                 news_future = executor.submit(fetch_news)
                 sm_future   = executor.submit(fetch_smart_money)
+                cal_future  = executor.submit(fetch_calendar)
                 candle_futures = {executor.submit(fetch_candles, p): p for p in args.pairs}
 
                 for future in as_completed(candle_futures):
@@ -384,10 +397,15 @@ def main():
                 except Exception as e:
                     logger.warning(f"Smart money fetch error (continuing without): {e}")
 
+                try:
+                    cal_score, _ = cal_future.result(timeout=12)
+                except Exception as e:
+                    logger.warning(f"Calendar fetch error (continuing without): {e}")
+
             # Process signals sequentially (orders must not overlap)
             for pair in args.pairs:
                 try:
-                    process_pair(pair, candle_data.get(pair), balance, news_scores, sm_scores)
+                    process_pair(pair, candle_data.get(pair), balance, news_scores, sm_scores, cal_score)
                 except Exception as e:
                     logger.error(f"Error processing {pair}: {e}")
                     continue

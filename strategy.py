@@ -34,24 +34,27 @@ class Strategy:
         df: pd.DataFrame,
         news_score: float = 0.0,
         smart_money_score: float = 0.0,
+        calendar_score: float = 0.0,
     ) -> tuple[str | None, float, str]:
         """
-        Blend technical analysis, news sentiment, and smart money positioning.
-        Also applies trend filter and momentum detection.
+        Blend technical analysis, news sentiment, smart money positioning,
+        and economic calendar events into a single trading signal.
         """
         tech_score     = self._get_technical_score(df)
         momentum_score = self._momentum_score(df)
         tech_w   = self.cfg.TECHNICAL_WEIGHT
         news_w   = self.cfg.NEWS_WEIGHT
         sm_w     = getattr(self.cfg, "SMART_MONEY_WEIGHT", 0.0)
+        cal_w    = getattr(self.cfg, "CALENDAR_WEIGHT", 0.0)
         aggr     = self.cfg.AGGRESSION
 
-        # Normalise weights in case smart money is disabled
-        if sm_w == 0.0:
-            # Redistribute smart money weight back to technical and news
-            total = tech_w + news_w
-            tech_w = tech_w / total
-            news_w = news_w / total
+        # Normalise weights in case optional sources are disabled
+        total_w = tech_w + news_w + sm_w + cal_w
+        if total_w > 0 and abs(total_w - 1.0) > 0.01:
+            tech_w /= total_w
+            news_w /= total_w
+            sm_w   /= total_w
+            cal_w  /= total_w
 
         if abs(momentum_score) > abs(tech_score):
             blended_tech = (tech_score + momentum_score) / 2
@@ -61,7 +64,8 @@ class Strategy:
         combined = (
             blended_tech      * tech_w +
             news_score        * news_w +
-            smart_money_score * sm_w
+            smart_money_score * sm_w   +
+            calendar_score    * cal_w
         )
         combined_boosted = combined * aggr
 
@@ -86,7 +90,8 @@ class Strategy:
         reason = (
             f"tech={tech_score:+.3f} momentum={momentum_score:+.3f} "
             f"news={news_score:+.3f} sm={smart_money_score:+.3f} "
-            f"combined={combined:+.3f} boosted={combined_boosted:+.3f} aggr={aggr}x"
+            f"cal={calendar_score:+.3f} combined={combined:+.3f} "
+            f"boosted={combined_boosted:+.3f} aggr={aggr}x"
             f"{trend_note}"
         )
 

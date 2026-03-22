@@ -90,16 +90,26 @@ class Config:
         self.AGGRESSION = 1.5
 
         # Weight of each signal source — must sum to 1.0
-        # Smart money now carries significant weight given two strong sources
-        self.TECHNICAL_WEIGHT   = 0.40
+        # technical: price-based indicators (EMA, RSI, MACD, BB)
+        # news:      headline sentiment + FreeCryptoAPI price momentum
+        # smart_money: Binance top trader long/short positioning
+        # calendar:  economic events (Fed, CPI, NFP, GDP) from ForexFactory
+        self.TECHNICAL_WEIGHT   = 0.35
         self.NEWS_WEIGHT        = 0.25
-        self.SMART_MONEY_WEIGHT = 0.35   # 35% — top trader L/S ratio + leaderboard
+        self.SMART_MONEY_WEIGHT = 0.25
+        self.CALENDAR_WEIGHT    = 0.15
 
         # Combined (boosted) score thresholds to trigger a trade
         self.BUY_THRESHOLD  = 0.25
         self.SELL_THRESHOLD = 0.25
 
-        # --- Smart money (top trader long/short ratio) ---
+        # --- Economic calendar (ForexFactory) ---
+        # Fetches this week's high-impact economic events (Fed, CPI, NFP, GDP etc.)
+        # and applies a caution/boost score when major events are within ±2 hours.
+        # Source: https://nfs.faireconomy.media/ff_calendar_thisweek.json (free, no key)
+        self.CALENDAR_ENABLED     = True
+        self.CALENDAR_CACHE_TTL   = 3600   # refresh event list once per hour
+        self.CALENDAR_WINDOW_MINS = 120    # look at events ±2 hours from now
         self.SMART_MONEY_ENABLED   = True
         self.SMART_MONEY_CACHE_TTL = 900   # 15 minutes
         # Weight split within the smart money signal
