@@ -9,7 +9,7 @@ separately and display as unknown buy price until the bot places its own order.
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger("cryptobot")
 
@@ -147,7 +147,7 @@ class RiskManager:
         self._entries[symbol] = {
             "price":      price,
             "qty":        qty,
-            "time":       datetime.utcnow().isoformat(),
+            "time":       datetime.now(timezone.utc).isoformat(),
             "synced":     synced,
             "known":      known,
             "addons":     0,
@@ -265,7 +265,7 @@ class RiskManager:
         entry["price"]   = round(avg_price, 8)
         entry["qty"]     = round(total_qty, 8)
         entry["addons"]  = entry.get("addons", 0) + 1
-        entry["time"]    = datetime.utcnow().isoformat()
+        entry["time"]    = datetime.now(timezone.utc).isoformat()
 
         self._save_positions()
         logger.info(
@@ -318,7 +318,7 @@ class RiskManager:
                 "qty":         entry["qty"],
                 "pnl":         pnl,
                 "addons":      addons,
-                "time":        datetime.utcnow().isoformat()
+                "time":        datetime.now(timezone.utc).isoformat()
             })
 
     def print_summary(self):

@@ -26,7 +26,7 @@ import time
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 # Add parent dir so we can import our modules
 sys.path.insert(0, ".")
