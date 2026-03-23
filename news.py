@@ -378,9 +378,9 @@ class NewsSentiment:
                 r.raise_for_status()
                 data = r.json()
 
-                # Log full raw response for first coin so field names are visible
+                # Log raw response at DEBUG level only — avoids cluttering INFO logs
                 if not price_scores:
-                    logger.info(f"FreeCryptoAPI raw sample ({symbol}): {data}")
+                    logger.debug(f"FreeCryptoAPI raw sample ({symbol}): {data}")
 
                 # Response shape: {"status": "success", "symbols": [{"symbol": "BTC", "daily_change_percentage": "-0.39", ...}]}
                 symbols_list = data.get("symbols") or []

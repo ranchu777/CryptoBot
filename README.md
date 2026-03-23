@@ -325,9 +325,110 @@ self.MACD_RSI_OVERSOLD   = 35    # block MACD sells below this RSI value
 self.MACD_VOL_PERIOD     = 20    # volume lookback for confirmation
 ```
 
+## Strategy by market condition
+
+Use this as a quick reference when deciding which strategy and settings to run.
+
+| Market | Strategy | Timeframe | Aggression | Notes |
+|--------|----------|-----------|------------|-------|
+| Strong bull run | MACD | 15m | 1.8 | Momentum captures full moves; pyramid on |
+| Steady uptrend | EMA | 15m or 1h | 1.5 | Most reliable in trending conditions |
+| Sideways / ranging | RSI or BB | 5m or 15m | 1.0 | Mean-reversion works well in ranges |
+| Bearish / downtrend | RSI | 15m | 0.8 | Catches oversold bounces; tight stops |
+
+### Bullish market — recommended config
+
+EMA or MACD with wider stops and higher take profit to let winners run:
+
+```bash
+python3 bot.py --strategy ema --timeframe 15m --aggression 1.8
+python3 bot.py --strategy macd --timeframe 15m --aggression 1.5
+```
+
+```python
+# config.py adjustments for bull market
+self.STOP_LOSS_PCT              = 4.0    # wider — give positions room to breathe
+self.TAKE_PROFIT_PCT            = 12.0   # higher — let winners run
+self.MAX_POSITIONS              = 5      # more exposure during uptrend
+self.PYRAMID_ENABLED            = True   # scale into winning positions
+self.PYRAMID_MIN_CONFIDENCE     = 0.65   # lower bar for add-ons
+self.TRAILING_STOP_ACTIVATION_PCT = 2.0  # activate trailing after +2%
+```
+
+When smart money shows LONG signals (e.g. SOL +0.648, DOGE +0.662) the combined score is boosted significantly — expect higher confidence entries and larger position sizes via confidence scaling.
+
+### Bearish market — recommended config
+
+RSI with tight stops and lower aggression. The 200 EMA trend filter will block most buys automatically — this is correct behaviour, not a bug.
+
+```bash
+python3 bot.py --strategy rsi --timeframe 15m --aggression 0.8
+```
+
+```python
+# config.py adjustments for bear market
+self.STOP_LOSS_PCT              = 2.0    # tight — cut losses fast
+self.TAKE_PROFIT_PCT            = 4.0    # take profits quickly on bounces
+self.MAX_POSITIONS              = 2      # minimal exposure
+self.BTC_DROP_BLOCK_PCT         = 1.5    # more sensitive BTC correlation filter
+self.TRAILING_STOP_ACTIVATION_PCT = 0.5  # trailing activates sooner
+```
+
+> **Note:** BB is dangerous in a bear market. Price can "walk the lower band" for weeks, triggering repeated buy signals while price keeps falling. Avoid BB during sustained downtrends.
+
+### Sideways / ranging market — recommended config
+
+RSI or BB — both are mean-reversion strategies that work well when price bounces between support and resistance.
+
+```bash
+python3 bot.py --strategy rsi --timeframe 5m --aggression 1.0
+python3 bot.py --strategy bb  --timeframe 15m --aggression 1.0
+```
+
+```python
+# config.py adjustments for ranging market
+self.STOP_LOSS_PCT   = 3.0
+self.TAKE_PROFIT_PCT = 6.0
+self.MAX_POSITIONS   = 4
+self.AGGRESSION      = 1.0
+```
+
 ---
 
-## Configuration reference
+## Security
+
+### API key safety
+
+- **Never share your `.env` file** — it contains your Binance API keys
+- **Restrict your live API key to your IP address** in Binance API Management — this prevents anyone who steals the key from using it elsewhere
+- **Only enable the minimum permissions** — "Enable Reading" and "Enable Spot & Margin Trading" only. Never enable withdrawals.
+- **Use testnet keys for development** — testnet keys cannot access real funds even if leaked
+
+### What the bot logs
+
+The log file (`logs/bot.log`) contains trade decisions, prices, and P&L — but **never logs API keys, secrets, or raw account data**. It is safe to share for debugging.
+
+What IS logged: signal scores, trade prices, P&L, strategy decisions, error messages.
+What is NOT logged: API keys, API secrets, full account balances breakdown, raw HTTP responses.
+
+### Git / version control
+
+A `.gitignore` file is included that prevents the following from being accidentally committed:
+
+```
+.env                  # your API keys — NEVER commit this
+positions.json        # contains your buy prices and quantities
+backtest_results.json # contains trade history
+logs/                 # contains trade decisions
+dashboard.html        # generated output
+```
+
+If you use Git, always verify `.env` is listed as untracked before pushing:
+```bash
+git status   # .env should appear under "Untracked files", never under "Changes to commit"
+```
+
+---
 
 All settings live in `config.py`. Edit them directly, then backtest before going live.
 

@@ -148,7 +148,6 @@ def main():
     startup_balances = client.get_all_balances()
     balance = startup_balances.get("USDT", 0.0)
     logger.info(f"Connected. USDT balance: {balance:.2f}")
-    logger.info(f"Raw balances from Binance: {startup_balances}")
 
     # Sync any pre-existing positions from the exchange so SL/TP works on them.
     # Skip pairs already loaded from positions.json — those have the real buy price.
