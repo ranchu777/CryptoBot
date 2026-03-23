@@ -32,13 +32,16 @@ Usage:
 """
 
 import time
+import json
 import logging
+import os
 import requests
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("cryptobot")
 
-_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+_CALENDAR_URL   = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+_CACHE_FILE     = "calendar_cache.json"
 
 # Keywords that make a USD event highly relevant to crypto markets
 _CRYPTO_RELEVANT_KEYWORDS = [
@@ -60,16 +63,65 @@ _HIGH_CRYPTO_IMPACT = [
 class EconomicCalendar:
     def __init__(self, cfg):
         self.cfg          = cfg
-        self._events      = []          # cached raw events for this week
-        self._last_fetch  = 0.0         # timestamp of last successful fetch
-        self._cache_ttl   = getattr(cfg, "CALENDAR_CACHE_TTL", 3600)   # 1 hour
-        self._window_mins = getattr(cfg, "CALENDAR_WINDOW_MINS", 120)  # ±2 hours
+        self._events      = []
+        self._last_fetch  = 0.0
+        self._cache_ttl   = getattr(cfg, "CALENDAR_CACHE_TTL", 21600)
+        self._window_mins = getattr(cfg, "CALENDAR_WINDOW_MINS", 120)
         self._enabled     = getattr(cfg, "CALENDAR_ENABLED", True)
         self.session      = requests.Session()
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 CryptoBot/1.0",
             "Accept":     "application/json",
         })
+        # Load from local file cache on startup — avoids fetching on every restart
+        self._load_file_cache()
+
+    # ------------------------------------------------------------------ #
+    #  File cache                                                          #
+    # ------------------------------------------------------------------ #
+
+    def _load_file_cache(self):
+        """Load cached events from disk if still fresh enough to use."""
+        try:
+            if not os.path.exists(_CACHE_FILE):
+                return
+            with open(_CACHE_FILE, "r") as f:
+                saved = json.load(f)
+
+            fetch_time = float(saved.get("fetch_time", 0))
+            age        = time.time() - fetch_time
+
+            # Re-parse stored events (stored without _parsed_time since it's not JSON serialisable)
+            raw_events = saved.get("events", [])
+            if raw_events:
+                self._events     = self._parse_events(raw_events)
+                self._last_fetch = fetch_time
+
+            if age < self._cache_ttl:
+                logger.info(
+                    f"Calendar: loaded {len(self._events)} events from local cache "
+                    f"(age {age/3600:.1f}h — no fetch needed)"
+                )
+            else:
+                logger.debug(
+                    f"Calendar: local cache is {age/3600:.1f}h old — will refresh on next cycle"
+                )
+        except Exception as e:
+            logger.debug(f"Calendar: could not read local cache — {e}")
+
+    def _save_file_cache(self, raw_events: list):
+        """Persist raw events to disk so restarts don't need a new fetch."""
+        try:
+            # Strip _parsed_time before saving (datetime not JSON serialisable)
+            saveable = [
+                {k: v for k, v in ev.items() if k != "_parsed_time"}
+                for ev in raw_events
+            ]
+            with open(_CACHE_FILE, "w") as f:
+                json.dump({"fetch_time": time.time(), "events": saveable}, f, indent=2)
+            logger.debug(f"Calendar: saved {len(saveable)} events to {_CACHE_FILE}")
+        except Exception as e:
+            logger.debug(f"Calendar: could not save local cache — {e}")
 
     # ------------------------------------------------------------------ #
     #  Public                                                              #
@@ -132,13 +184,24 @@ class EconomicCalendar:
             return
         try:
             r = self.session.get(_CALENDAR_URL, timeout=10)
+            if r.status_code == 429:
+                # Rate limited — back off for 2 hours before retrying
+                self._last_fetch = time.time() + 3600
+                logger.warning(
+                    "Calendar: rate limited by ForexFactory (429). "
+                    "Backing off for 2 hours. Using cached events if available."
+                )
+                return
             r.raise_for_status()
             raw = r.json()
             self._events     = self._parse_events(raw)
             self._last_fetch = time.time()
+            self._save_file_cache(raw)   # persist to disk
             logger.info(f"Calendar: loaded {len(self._events)} events for this week")
         except Exception as e:
-            logger.warning(f"Calendar: fetch failed — {e}")
+            # On any failure, wait 30 minutes before retrying instead of every cycle
+            self._last_fetch = time.time() + 1800
+            logger.warning(f"Calendar: fetch failed — {e}. Retrying in 30 minutes.")
 
     def _parse_events(self, raw: list) -> list:
         """Parse raw JSON events, adding a parsed datetime field."""

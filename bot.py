@@ -41,6 +41,8 @@ def parse_args():
                    help="Candle timeframe (default: 5m)")
     p.add_argument("--aggression", type=float, default=None,
                    help="Override aggression level from config (e.g. 1.5 = bold, 2.0 = aggressive)")
+    p.add_argument("--bb-offset", type=float, default=None,
+                   help="Bollinger Bands offset — shifts bands inward (+) or outward (-). Default: 0.0")
     p.add_argument("--no-news", action="store_true",
                    help="Disable news sentiment (use technical signals only)")
     p.add_argument("--live", action="store_true",
@@ -127,6 +129,10 @@ def main():
     if args.aggression is not None:
         cfg.AGGRESSION = args.aggression
         logger.info(f"Aggression overridden to {cfg.AGGRESSION}")
+
+    if args.bb_offset is not None:
+        cfg.BB_OFFSET = args.bb_offset
+        logger.info(f"BB offset overridden to {cfg.BB_OFFSET} (effective std={cfg.BB_STD - cfg.BB_OFFSET:.1f}σ)")
 
     client      = BinanceClient(cfg)
     strategy    = Strategy(name=args.strategy, cfg=cfg)

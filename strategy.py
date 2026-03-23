@@ -199,10 +199,31 @@ class Strategy:
     #  Strategy 3: Bollinger Bands (scored)                               #
     # ------------------------------------------------------------------ #
     def _bb_score(self, df: pd.DataFrame) -> float:
-        close = df["close"]
-        sma   = close.rolling(self.cfg.BB_PERIOD).mean()
-        std   = close.rolling(self.cfg.BB_PERIOD).std()
-        upper = sma + self.cfg.BB_STD * std
+        """
+        Bollinger Bands with optional offset.
+
+        BB_OFFSET shifts the bands inward (positive) or outward (negative)
+        by that many additional standard deviations from the midline.
+
+        BB_OFFSET = 0.0  (default) — standard bands at ±BB_STD σ
+        BB_OFFSET = 0.5  — bands shift inward by 0.5σ → more signals, lower threshold
+        BB_OFFSET = -0.5 — bands shift outward by 0.5σ → fewer but stronger signals
+
+        Example with BB_STD=2.0, BB_OFFSET=0.5:
+          upper band = SMA + (2.0 - 0.5) * std = SMA + 1.5σ  (closer to price)
+          lower band = SMA - (2.0 - 0.5) * std = SMA - 1.5σ  (closer to price)
+        """
+        close  = df["close"]
+        sma    = close.rolling(self.cfg.BB_PERIOD).mean()
+        std    = close.rolling(self.cfg.BB_PERIOD).std()
+        offset = getattr(self.cfg, "BB_OFFSET", 0.0)
+
+        # Effective multiplier — offset shifts bands inward (positive) or outward (negative)
+        effective_std = self.cfg.BB_STD - offset
+        if effective_std <= 0:
+            effective_std = 0.1   # safety floor — bands can't collapse to zero
+
+        upper = sma + effective_std * std
 
         price = close.iloc[-1]
         mid   = sma.iloc[-1]

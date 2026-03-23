@@ -322,6 +322,8 @@ def main():
     p.add_argument("--strategy",   default="ema", choices=["ema","rsi","bb","macd"])
     p.add_argument("--timeframe",  default="5m",  choices=["1m","5m","15m","1h"])
     p.add_argument("--aggression", type=float, default=None)
+    p.add_argument("--bb-offset",  type=float, default=None,
+                   help="Bollinger Bands offset (default: 0.0)")
     p.add_argument("--balance",       type=float, default=10_000.0, help="Starting balance (default: 10000)")
     p.add_argument("--output",        default="backtest_results.json")
     p.add_argument("--no-trend-filter", action="store_true",
@@ -331,6 +333,8 @@ def main():
     cfg = Config(testnet=False)
     if args.aggression is not None:
         cfg.AGGRESSION = args.aggression
+    if args.bb_offset is not None:
+        cfg.BB_OFFSET = args.bb_offset
     if args.no_trend_filter:
         cfg.TREND_FILTER_ENABLED = False
         print("  ⚠  Trend filter disabled — buys allowed in downtrends")
@@ -339,7 +343,6 @@ def main():
     pairs = DEFAULT_PAIRS if args.all_pairs else [args.pair.upper()]
     bt    = Backtester(cfg, strategy)
 
-    # Config snapshot — saved with results so dashboard can tell runs apart
     run_config = {
         "strategy":   args.strategy.upper(),
         "timeframe":  args.timeframe,
@@ -347,11 +350,13 @@ def main():
         "aggression": cfg.AGGRESSION,
         "sl_pct":     cfg.STOP_LOSS_PCT,
         "tp_pct":     cfg.TAKE_PROFIT_PCT,
+        "bb_offset":  cfg.BB_OFFSET,
         "run_at":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
+    bb_note = f" | BB offset={cfg.BB_OFFSET:+.1f} (effective std={cfg.BB_STD - cfg.BB_OFFSET:.1f}σ)" if args.strategy == "bb" else ""
     print(f"\nCryptoBot Backtester")
-    print(f"Strategy: {args.strategy.upper()} | Timeframe: {args.timeframe} | Days: {args.days} | Aggression: {cfg.AGGRESSION}")
+    print(f"Strategy: {args.strategy.upper()} | Timeframe: {args.timeframe} | Days: {args.days} | Aggression: {cfg.AGGRESSION}{bb_note}")
     print(f"Starting balance: ${args.balance:,.2f}\n")
 
     all_results = []

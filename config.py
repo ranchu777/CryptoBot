@@ -36,6 +36,12 @@ class Config:
         # Bollinger Bands
         self.BB_PERIOD = 20
         self.BB_STD    = 2.0
+        # BB_OFFSET shifts bands inward (positive) or outward (negative).
+        # 0.0  = standard bands at ±2σ (default)
+        # 0.5  = bands at ±1.5σ — more signals, price reaches bands more often
+        # 1.0  = bands at ±1σ  — very sensitive, use with low aggression
+        # -0.5 = bands at ±2.5σ — fewer but stronger signals
+        self.BB_OFFSET = 0.0
 
         # MACD
         self.MACD_FAST   = 12
@@ -130,12 +136,12 @@ class Config:
         self.SELL_THRESHOLD = 0.25
 
         # --- Economic calendar (ForexFactory) ---
-        # Fetches this week's high-impact economic events (Fed, CPI, NFP, GDP etc.)
-        # and applies a caution/boost score when major events are within ±2 hours.
-        # Source: https://nfs.faireconomy.media/ff_calendar_thisweek.json (free, no key)
+        # Fetches this week's economic events from ForexFactory (free, no key needed).
+        # The calendar only updates once per week so 6 hours is plenty.
+        # Rate limit: ForexFactory allows ~2 requests per 5 minutes max.
         self.CALENDAR_ENABLED     = True
-        self.CALENDAR_CACHE_TTL   = 3600   # refresh event list once per hour
-        self.CALENDAR_WINDOW_MINS = 120    # look at events ±2 hours from now
+        self.CALENDAR_CACHE_TTL   = 21600  # fetch once every 6 hours
+        self.CALENDAR_WINDOW_MINS = 120    # consider events within ±2 hours
         self.SMART_MONEY_ENABLED   = True
         self.SMART_MONEY_CACHE_TTL = 900   # 15 minutes
         # Weight split within the smart money signal
