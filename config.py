@@ -41,7 +41,7 @@ class Config:
         # 0.5  = bands at ±1.5σ — more signals, price reaches bands more often
         # 1.0  = bands at ±1σ  — very sensitive, use with low aggression
         # -0.5 = bands at ±2.5σ — fewer but stronger signals
-        self.BB_OFFSET = 0.0
+        self.BB_OFFSET = 5.0
 
         # MACD
         self.MACD_FAST   = 12
