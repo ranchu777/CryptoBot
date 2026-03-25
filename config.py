@@ -30,8 +30,8 @@ class Config:
 
         # RSI
         self.RSI_PERIOD   = 14
-        self.RSI_OVERSOLD = 30
-        self.RSI_OVERBOUGHT = 70
+        self.RSI_OVERSOLD = 33
+        self.RSI_OVERBOUGHT = 68
 
         # Bollinger Bands
         self.BB_PERIOD = 20
@@ -210,9 +210,9 @@ class Config:
         # Binance requires ~$5 minimum per order — these are set conservatively higher
         # to avoid partial fills and dust, but low enough to work with small accounts
         self.MIN_ORDER_USDT = {
-            "BTCUSDT":  10,
-            "ETHUSDT":  10,
-            "SOLUSDT":  10,
-            "BNBUSDT":  10,
-            "DOGEUSDT": 10,
+            "BTCUSDT":  1000,
+            "ETHUSDT":  1000,
+            "SOLUSDT":  150,
+            "BNBUSDT":  150,
+            "DOGEUSDT": 150,
         }
