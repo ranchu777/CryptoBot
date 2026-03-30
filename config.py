@@ -4,9 +4,15 @@ Edit these values to tune your bot's behaviour.
 """
 
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()  # reads from .env file
+
+
+class ConfigValidationError(Exception):
+    """Raised when configuration parameters are invalid."""
+    pass
 
 
 class Config:
@@ -223,3 +229,88 @@ class Config:
             "BNBUSDT":  150,
             "DOGEUSDT": 150,
         }
+
+        # Validate configuration
+        self._validate()
+
+    def _validate(self):
+        """Validate that all configuration parameters are in reasonable ranges."""
+        errors = []
+
+        # --- API Key validation ---
+        if not self.API_KEY or not self.API_KEY.strip():
+            errors.append(
+                f"API_KEY is empty. Set BINANCE_{'TESTNET_' if self.TESTNET else 'LIVE_'}KEY "
+                f"in your .env file and re-run."
+            )
+        if not self.API_SECRET or not self.API_SECRET.strip():
+            errors.append(
+                f"API_SECRET is empty. Set BINANCE_{'TESTNET_' if self.TESTNET else 'LIVE_'}SECRET "
+                f"in your .env file and re-run."
+            )
+
+        # --- Risk parameters ---
+        if self.STOP_LOSS_PCT <= 0 or self.STOP_LOSS_PCT > 50:
+            errors.append(f"STOP_LOSS_PCT must be 0 < x <= 50, got {self.STOP_LOSS_PCT}")
+        if self.TAKE_PROFIT_PCT <= 0 or self.TAKE_PROFIT_PCT > 100:
+            errors.append(f"TAKE_PROFIT_PCT must be 0 < x <= 100, got {self.TAKE_PROFIT_PCT}")
+        if self.POSITION_SIZE_PCT <= 0 or self.POSITION_SIZE_PCT > 25:
+            errors.append(f"POSITION_SIZE_PCT must be 0 < x <= 25, got {self.POSITION_SIZE_PCT}")
+        if self.MAX_POSITIONS < 1 or self.MAX_POSITIONS > 20:
+            errors.append(f"MAX_POSITIONS must be 1 <= x <= 20, got {self.MAX_POSITIONS}")
+        if self.MIN_RESERVE_USDT < 0:
+            errors.append(f"MIN_RESERVE_USDT must be >= 0, got {self.MIN_RESERVE_USDT}")
+        if self.AGGRESSION <= 0 or self.AGGRESSION > 5:
+            errors.append(f"AGGRESSION must be 0 < x <= 5, got {self.AGGRESSION}")
+
+        # --- Signal thresholds ---
+        if self.BUY_THRESHOLD <= 0 or self.BUY_THRESHOLD > 1:
+            errors.append(f"BUY_THRESHOLD must be 0 < x <= 1, got {self.BUY_THRESHOLD}")
+        if self.SELL_THRESHOLD <= 0 or self.SELL_THRESHOLD > 1:
+            errors.append(f"SELL_THRESHOLD must be 0 < x <= 1, got {self.SELL_THRESHOLD}")
+
+        # --- Weight validation (should sum to ~1.0, allow ±0.05 tolerance) ---
+        total_weight = (
+            self.TECHNICAL_WEIGHT + self.NEWS_WEIGHT + self.SMART_MONEY_WEIGHT +
+            self.CALENDAR_WEIGHT + self.FNG_WEIGHT + self.FUNDING_WEIGHT + self.ORB_WEIGHT
+        )
+        if abs(total_weight - 1.0) > 0.05:
+            errors.append(
+                f"Signal weights must sum to ~1.0 (±0.05 tolerance), got {total_weight:.2f}. "
+                f"Check TECHNICAL_WEIGHT, NEWS_WEIGHT, etc."
+            )
+        if any(w < 0 or w > 1 for w in [
+            self.TECHNICAL_WEIGHT, self.NEWS_WEIGHT, self.SMART_MONEY_WEIGHT,
+            self.CALENDAR_WEIGHT, self.FNG_WEIGHT, self.FUNDING_WEIGHT, self.ORB_WEIGHT
+        ]):
+            errors.append("All signal weights must be 0.0 <= x <= 1.0")
+
+        # --- Trend filter ---
+        if self.TREND_EMA_PERIOD < 20:
+            errors.append(f"TREND_EMA_PERIOD should be >= 20, got {self.TREND_EMA_PERIOD}")
+
+        # --- Drawdown circuit breaker ---
+        if self.MAX_DRAWDOWN_PCT <= 0 or self.MAX_DRAWDOWN_PCT > 50:
+            errors.append(f"MAX_DRAWDOWN_PCT must be 0 < x <= 50, got {self.MAX_DRAWDOWN_PCT}")
+
+        # --- Trailing stop ---
+        if self.TRAILING_STOP_ACTIVATION_PCT < 0 or self.TRAILING_STOP_ACTIVATION_PCT > 10:
+            errors.append(
+                f"TRAILING_STOP_ACTIVATION_PCT must be 0 <= x <= 10, got {self.TRAILING_STOP_ACTIVATION_PCT}"
+            )
+
+        # --- Volatility thresholds ---
+        if self.VOL_NORMAL_THRESHOLD <= 0 or self.VOL_NORMAL_THRESHOLD >= self.VOL_HIGH_THRESHOLD:
+            errors.append("VOL_NORMAL_THRESHOLD must be > 0 and < VOL_HIGH_THRESHOLD")
+        if self.VOL_HIGH_THRESHOLD >= self.VOL_EXTREME_THRESHOLD:
+            errors.append("VOL_HIGH_THRESHOLD must be < VOL_EXTREME_THRESHOLD")
+
+        if errors:
+            print("=" * 70, file=sys.stderr)
+            print("CONFIGURATION ERROR", file=sys.stderr)
+            print("=" * 70, file=sys.stderr)
+            for i, err in enumerate(errors, 1):
+                print(f"{i}. {err}", file=sys.stderr)
+            print("=" * 70, file=sys.stderr)
+            raise ConfigValidationError(f"{len(errors)} configuration error(s) found — see above")
+

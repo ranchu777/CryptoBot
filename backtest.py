@@ -84,7 +84,41 @@ def fetch_historical_candles(symbol: str, interval: str, days: int) -> pd.DataFr
         "open_time","open","high","low","close","volume",
         "close_time","quote_vol","trades","taker_buy_base","taker_buy_quote","ignore"
     ])
-    return df[["open","high","low","close","volume"]].astype(float).reset_index(drop=True)
+    df = df[["open","high","low","close","volume"]].astype(float).reset_index(drop=True)
+    
+    # Validate OHLCV data integrity
+    errors = []
+    if len(df) == 0:
+        return df
+    
+    # Check for NaN values
+    if df.isnull().any().any():
+        errors.append(f"NaN values detected in {df.columns[df.isnull().any()].tolist()}")
+    
+    # Check OHLCV relationships
+    invalid_high_low = (df["high"] < df["low"]).any()
+    if invalid_high_low:
+        errors.append("High < Low in some candles")
+    
+    invalid_close_range = ((df["close"] > df["high"]) | (df["close"] < df["low"])).any()
+    if invalid_close_range:
+        errors.append("Close outside [Low, High] range in some candles")
+    
+    invalid_open_range = ((df["open"] > df["high"]) | (df["open"] < df["low"])).any()
+    if invalid_open_range:
+        errors.append("Open outside [Low, High] range in some candles")
+    
+    negative_volume = (df["volume"] < 0).any()
+    if negative_volume:
+        errors.append("Negative volume detected")
+    
+    if errors:
+        print(f"\n  ⚠ Data validation warnings for {symbol}:")
+        for err in errors:
+            print(f"    - {err}")
+        print(f"  Proceeding with backtest; results may be unreliable.\n")
+    
+    return df
 
 
 # ------------------------------------------------------------------ #

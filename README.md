@@ -9,19 +9,20 @@ Runs in testnet (paper trading) mode by default — no real money at risk until 
 ## Table of Contents
 
 1. [Installation](#installation)
-2. [Running the bot](#running-the-bot)
-3. [Selling positions](#selling-positions)
-4. [Backtesting](#backtesting)
-5. [Performance dashboard](#performance-dashboard)
-6. [Strategies](#strategies)
-7. [Configuration reference](#configuration-reference)
-8. [Signal sources and weights](#signal-sources-and-weights)
-9. [Risk management](#risk-management)
-10. [Protection mechanisms](#protection-mechanisms)
-11. [Pyramiding (position scaling)](#pyramiding-position-scaling)
-12. [File structure](#file-structure)
-13. [Understanding the logs](#understanding-the-logs)
-14. [Safety tips](#safety-tips)
+2. [Testing](#testing)
+3. [Running the bot](#running-the-bot)
+4. [Selling positions](#selling-positions)
+5. [Backtesting](#backtesting)
+6. [Performance dashboard](#performance-dashboard)
+7. [Strategies](#strategies)
+8. [Configuration reference](#configuration-reference)
+9. [Signal sources and weights](#signal-sources-and-weights)
+10. [Risk management](#risk-management)
+11. [Protection mechanisms](#protection-mechanisms)
+12. [Pyramiding (position scaling)](#pyramiding-position-scaling)
+13. [File structure](#file-structure)
+14. [Understanding the logs](#understanding-the-logs)
+15. [Safety tips](#safety-tips)
 
 ---
 
@@ -81,6 +82,36 @@ CRYPTOPANIC_KEY=your_key_here   # optional
 
 **CryptoPanic key (optional — news headlines with higher rate limit):**
 - Register at https://cryptopanic.com/developers/api — free tier available
+
+---
+
+## Testing
+
+Before running the bot with real market data, verify that all bug fixes and validations are working correctly:
+
+```bash
+# Run the comprehensive test suite (11 tests)
+python3 test_fixes_v2.py
+```
+
+**What this tests:**
+- ✅ Config validation (API keys and parameter ranges)
+- ✅ Division by zero protections (drawdown & EMA)
+- ✅ Atomic file writes (crash-safe position storage)
+- ✅ Symbol validation (prevents invalid trading pairs)
+- ✅ Order execution verification (checks actual fills)
+- ✅ CLI pair validation (validates input pairs)
+- ✅ OHLCV data validation (backtest data integrity)
+- ✅ Float precision handling (prevents rounding errors)
+- ✅ Error handling framework (clear error messages)
+
+**Expected output:**
+```
+🎉 ALL TESTS PASSED! All 11 bug fixes verified successfully.
+✅ PASSED: 11/11
+```
+
+If all tests pass, the bot is ready to use. If any tests fail, review the output for specific issues to fix.
 
 ---
 

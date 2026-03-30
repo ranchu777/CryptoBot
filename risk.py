@@ -9,6 +9,7 @@ separately and display as unknown buy price until the bot places its own order.
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 
 logger = logging.getLogger("cryptobot")
@@ -56,7 +57,7 @@ class RiskManager:
             logger.warning(f"Could not load positions.json: {e}")
 
     def _save_positions(self):
-        """Write current known entry prices to disk."""
+        """Write current known entry prices to disk using atomic writes."""
         to_save = {
             sym: {
                 "price":      e["price"],
@@ -70,8 +71,19 @@ class RiskManager:
             if e.get("known", False)
         }
         try:
-            with open(_POSITIONS_FILE, "w") as f:
-                json.dump(to_save, f, indent=2)
+            # Atomic write: write to temp file first, then rename
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.json', dir='.')
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(to_save, f, indent=2)
+                os.replace(temp_path, _POSITIONS_FILE)
+            except Exception:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+                raise
         except Exception as e:
             logger.warning(f"Could not save positions.json: {e}")
 
@@ -92,6 +104,11 @@ class RiskManager:
         if self._session_start_balance is None:
             self._session_start_balance = current_balance
             logger.info(f"Drawdown circuit breaker armed — session start balance: {current_balance:.2f} USDT")
+            return False
+
+        # Safety check: prevent division by zero
+        if self._session_start_balance <= 0:
+            logger.warning("Session start balance is <= 0, cannot calculate drawdown")
             return False
 
         max_dd = getattr(self.cfg, "MAX_DRAWDOWN_PCT", 5.0) / 100
@@ -124,13 +141,21 @@ class RiskManager:
             logger.debug(f"Max positions ({self.cfg.MAX_POSITIONS}) reached, skipping {symbol}")
             return None
 
+        # Validate symbol has a defined minimum order size
+        if symbol not in self.cfg.MIN_ORDER_USDT:
+            logger.error(
+                f"Symbol {symbol} not found in MIN_ORDER_USDT config. "
+                f"Valid symbols: {list(self.cfg.MIN_ORDER_USDT.keys())}"
+            )
+            return None
+
         tradeable = max(0, balance - self.cfg.MIN_RESERVE_USDT)
         size_pct  = self.cfg.POSITION_SIZE_PCT / 100
         if getattr(self.cfg, "SCALE_SIZE_WITH_CONFIDENCE", False):
             size_pct = min(size_pct * self.cfg.AGGRESSION * max(0.3, confidence), 0.25)
 
         usdt_to_use = tradeable * size_pct
-        min_notional = self.cfg.MIN_ORDER_USDT.get(symbol, 10)
+        min_notional = self.cfg.MIN_ORDER_USDT[symbol]
         if usdt_to_use < min_notional:
             logger.debug(f"{symbol}: order too small ({usdt_to_use:.2f} USDT < min {min_notional})")
             return None
@@ -230,11 +255,16 @@ class RiskManager:
         if not entry or price <= 0:
             return None
 
+        # Validate symbol has a defined minimum order size
+        if symbol not in self.cfg.MIN_ORDER_USDT:
+            logger.error(f"Symbol {symbol} not found in MIN_ORDER_USDT config")
+            return None
+
         original_qty   = entry.get("addon_qty", entry["qty"])
         addon_size_pct = getattr(self.cfg, "PYRAMID_ADDON_SIZE_PCT", 0.25)
         addon_usdt     = original_qty * entry["price"] * addon_size_pct
 
-        min_notional = self.cfg.MIN_ORDER_USDT.get(symbol, 10)
+        min_notional = self.cfg.MIN_ORDER_USDT[symbol]
         tradeable    = max(0, balance - self.cfg.MIN_RESERVE_USDT)
 
         if addon_usdt < min_notional:

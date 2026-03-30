@@ -183,8 +183,25 @@ class BinanceClient:
             logger.info(f"[TESTNET] {side} {qty_str} {symbol}")
         order = self._post("/api/v3/order", params)
         if order and order.get("orderId"):
+            # Verify order execution: check if order was actually filled
+            executed_qty = float(order.get("executedQty", 0))
+            if executed_qty <= 0:
+                logger.error(
+                    f"Order {order['orderId']} failed to execute: "
+                    f"executedQty={executed_qty} (requested {qty_str})"
+                )
+                return None
+            
+            # Warn if partial fill (requested more than executed)
+            requested_qty = float(qty_str)
+            if executed_qty < requested_qty:
+                logger.warning(
+                    f"{symbol}: Partial fill — requested {requested_qty}, "
+                    f"executed {executed_qty} (factor: {executed_qty/requested_qty:.1%})"
+                )
+            
             if side == "BUY":
-                self._positions[symbol] = float(qty_str)
+                self._positions[symbol] = executed_qty
             else:
                 self._positions.pop(symbol, None)
             return order

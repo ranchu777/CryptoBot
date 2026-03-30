@@ -125,6 +125,22 @@ def main():
 
     cfg = Config(testnet=not args.live)
 
+    # Validate trading pairs
+    valid_pairs = set(cfg.DEFAULT_PAIRS)
+    invalid_pairs = [p for p in args.pairs if p not in valid_pairs]
+    if invalid_pairs:
+        logger.error(
+            f"Invalid trading pairs: {invalid_pairs}. "
+            f"Valid pairs are: {list(valid_pairs)}"
+        )
+        return
+    
+    # Validate pair has min order size defined
+    for pair in args.pairs:
+        if pair not in cfg.MIN_ORDER_USDT:
+            logger.error(f"Pair {pair} missing from MIN_ORDER_USDT config")
+            return
+
     # CLI aggression override
     if args.aggression is not None:
         cfg.AGGRESSION = args.aggression

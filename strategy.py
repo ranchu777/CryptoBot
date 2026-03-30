@@ -161,10 +161,17 @@ class Strategy:
         slow = self.cfg.EMA_SLOW
         ema_fast = df["close"].ewm(span=fast, adjust=False).mean()
         ema_slow = df["close"].ewm(span=slow, adjust=False).mean()
-        gap      = (ema_fast - ema_slow) / ema_slow
+        
+        # Guard against division by zero
+        ema_slow_final = ema_slow.iloc[-1]
+        if pd.isna(ema_slow_final) or ema_slow_final == 0:
+            return 0.0
+        
+        gap      = (ema_fast - ema_slow) / ema_slow_final
 
         curr_gap   = gap.iloc[-1]
-        prev_gap   = gap.iloc[-2]
+        prev_gap   = gap.iloc[-2] if len(gap) >= 2 else 0
+
         cross_up   = prev_gap <= 0 < curr_gap
         cross_down = prev_gap >= 0 > curr_gap
 
