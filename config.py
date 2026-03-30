@@ -63,8 +63,8 @@ class Config:
         self.POSITION_SIZE_PCT = 5.0      # base % per trade
 
         # Stop loss / take profit as % of entry price
-        self.STOP_LOSS_PCT    = 3.0   # exit if price drops 3%
-        self.TAKE_PROFIT_PCT  = 8.0   # exit if price rises 8%
+        self.STOP_LOSS_PCT    = 2.5   # exit if price drops 3%
+        self.TAKE_PROFIT_PCT  = 5.0   # exit if price rises 8%
 
         # --- Trailing stop loss ---
         # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
@@ -124,12 +124,19 @@ class Config:
         self.AGGRESSION = 1.5
 
         # Weight of each signal source — must sum to 1.0
-        self.TECHNICAL_WEIGHT   = 0.30
+        self.TECHNICAL_WEIGHT   = 0.28
         self.NEWS_WEIGHT        = 0.20
         self.SMART_MONEY_WEIGHT = 0.20
         self.CALENDAR_WEIGHT    = 0.10
         self.FNG_WEIGHT         = 0.10
-        self.FUNDING_WEIGHT     = 0.10
+        self.FUNDING_WEIGHT     = 0.07
+        self.ORB_WEIGHT = 0.05
+
+        # --- Opening Range Breakout (ORB) ---
+        self.ORB_ENABLED          = True
+        self.ORB_RETEST_CANDLES   = 6      # 30 min retest window (6 x 5m candles)
+        self.ORB_RANGE_WINDOW_MINS = 10    # capture range in first 10 min of UTC day
+        self.ORB_RR_RATIO         = 2.0   # 2:1 risk-to-reward target
 
         # Combined (boosted) score thresholds to trigger a trade
         self.BUY_THRESHOLD  = 0.25
