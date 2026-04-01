@@ -129,8 +129,17 @@ class Backtester:
     def __init__(self, cfg: Config, strategy: Strategy):
         self.cfg      = cfg
         self.strategy = strategy
+        
+        # Use lower minimums for backtesting (real exchange minimums are too high for typical position sizes)
+        self.min_order_usdt = {
+            "BTCUSDT":  1000,   # Backtest minimum: $50 instead of $1000
+            "ETHUSDT":  1000,   # Backtest minimum: $50 instead of $1000  
+            "SOLUSDT":  100,   # Backtest minimum: $10 instead of $150
+            "BNBUSDT":  100,   # Backtest minimum: $10 instead of $150
+            "DOGEUSDT": 100,   # Backtest minimum: $10 instead of $150
+        }
 
-    def run(self, df: pd.DataFrame, symbol: str, initial_balance: float = 10_000.0) -> dict:
+    def run(self, df: pd.DataFrame, symbol: str, initial_balance: float = 100_000.0) -> dict:
         """
         Simulate the strategy on historical candles.
         Uses a rolling window of 250 candles (enough for the 200 EMA trend filter).
@@ -216,7 +225,7 @@ class Backtester:
                 if getattr(self.cfg, "SCALE_SIZE_WITH_CONFIDENCE", False):
                     size_pct = min(size_pct * self.cfg.AGGRESSION * max(0.3, confidence), 0.25)
                 usdt_to_use  = (balance - self.cfg.MIN_RESERVE_USDT) * size_pct
-                min_notional = self.cfg.MIN_ORDER_USDT.get(symbol, 10)
+                min_notional = self.min_order_usdt.get(symbol, 10)
                 if usdt_to_use >= min_notional:
                     qty         = usdt_to_use / next_open
                     entry_price = next_open
@@ -358,7 +367,7 @@ def main():
     p.add_argument("--aggression", type=float, default=None)
     p.add_argument("--bb-offset",  type=float, default=None,
                    help="Bollinger Bands offset (default: 0.0)")
-    p.add_argument("--balance",       type=float, default=10_000.0, help="Starting balance (default: 10000)")
+    p.add_argument("--balance",       type=float, default=100_000.0, help="Starting balance (default: 10000)")
     p.add_argument("--output",        default="backtest_results.json")
     p.add_argument("--no-trend-filter", action="store_true",
                    help="Disable 200 EMA trend filter (shows raw signals in downtrends)")

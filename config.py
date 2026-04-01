@@ -47,7 +47,7 @@ class Config:
         # 0.5  = bands at ±1.5σ — more signals, price reaches bands more often
         # 1.0  = bands at ±1σ  — very sensitive, use with low aggression
         # -0.5 = bands at ±2.5σ — fewer but stronger signals
-        self.BB_OFFSET = 5.0
+        self.BB_OFFSET = -3.0
 
         # MACD
         self.MACD_FAST   = 12
@@ -69,14 +69,14 @@ class Config:
         self.POSITION_SIZE_PCT = 5.0      # base % per trade
 
         # Stop loss / take profit as % of entry price
-        self.STOP_LOSS_PCT    = 2.5   # exit if price drops 3%
-        self.TAKE_PROFIT_PCT  = 5.0   # exit if price rises 8%
+        self.STOP_LOSS_PCT    = 2.0   # exit if price drops 3%
+        self.TAKE_PROFIT_PCT  = 4.0   # exit if price rises 8%
 
         # --- Trailing stop loss ---
         # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
         # switches to trailing mode — fixed stop is replaced entirely.
         self.TRAILING_STOP_ENABLED        = True
-        self.TRAILING_STOP_ACTIVATION_PCT = 1.0   # trailing activates after +1% gain
+        self.TRAILING_STOP_ACTIVATION_PCT = 2.0   # trailing activates after +1% gain
         self.TRAILING_STOP_REPLACE_FIXED  = True   # replace fixed stop once trailing is active
 
         # Max open positions at once
@@ -127,7 +127,7 @@ class Config:
         self.MTF_AGREE_THRESHOLD = 0.2   # 1h score must be > 0.2 for full buy confidence
 
         # --- Aggression & signal blending ---
-        self.AGGRESSION = 1.5
+        self.AGGRESSION = 1.0
 
         # Weight of each signal source — must sum to 1.0
         self.TECHNICAL_WEIGHT   = 0.28

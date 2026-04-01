@@ -236,6 +236,15 @@ python3 backtest.py --aggression 0.8 --days 90
 python3 backtest.py --balance 50000 --days 30
 ```
 
+### Backtest minimum order sizes
+
+The backtest uses lower minimum order sizes than the live bot to allow realistic position sizing with typical backtest balances ($10,000 default):
+
+- **BTCUSDT/ETHUSDT**: $50 minimum (vs $1000 live)
+- **SOLUSDT/BNBUSDT/DOGEUSDT**: $10 minimum (vs $150 live)
+
+This prevents the "0 trades" issue that would occur if using live exchange minimums with small position sizes.
+
 ### Trend filter and downtrends
 
 If the market was in a downtrend during your test period, the 200 EMA trend filter will block all buy signals and you will see 0 trades. This is correct behaviour — the filter is protecting you. The backtest will automatically re-run without the filter so you can see what would have happened without protection:

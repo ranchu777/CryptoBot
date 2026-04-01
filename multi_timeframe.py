@@ -45,10 +45,19 @@ class MultiTimeframe:
             if candles_1h is None or len(candles_1h) < 30:
                 return 0.0
 
-            # Get raw technical score on 1h candles (no news/sm/cal — pure price)
+            # Exclude the currently-forming 1h candle to avoid mid-hour noise
+            if len(candles_1h) > 1:
+                candles_1h = candles_1h.iloc[:-1]
+
+            if len(candles_1h) < 30:
+                return 0.0
+
+            # Get raw technical score on completed 1h candles (no news/sm/cal — pure price)
             tech_score = self.strategy._get_technical_score(candles_1h)
             self._cache[pair] = (tech_score, now)
-            logger.debug(f"MTF {pair} 1h score: {tech_score:+.3f}")
+            logger.debug(
+                f"MTF {pair} 1h score: {tech_score:+.3f} on {len(candles_1h)} completed candles"
+            )
             return tech_score
         except Exception as e:
             logger.debug(f"MTF {pair}: failed — {e}")
