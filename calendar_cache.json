@@ -1,5 +1,5 @@
 {
-  "fetch_time": 1775015349.563176,
+  "fetch_time": 1775122805.875365,
   "events": [
     {
       "title": "BOJ Summary of Opinions",
@@ -582,7 +582,7 @@
       "country": "USD",
       "date": "2026-04-01T10:30:00-04:00",
       "impact": "Low",
-      "forecast": "2.0M",
+      "forecast": "1.8M",
       "previous": "6.9M"
     },
     {
@@ -613,7 +613,7 @@
       "title": "President Trump Speaks",
       "country": "USD",
       "date": "2026-04-01T21:00:00-04:00",
-      "impact": "Medium",
+      "impact": "High",
       "forecast": "",
       "previous": ""
     },
