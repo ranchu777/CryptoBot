@@ -491,6 +491,7 @@ def main():
                     price_df   = candle_data.get(pair)
                     entry_price = risk.get_entry_price(pair)
                     entry_known = risk.get_entry_known(pair)
+                    entry_str = f"{entry_price:,.4f}" if entry_price > 0 else "—"
                     if price_df is not None:
                         last_price = price_df["close"].iloc[-1]
                         value      = qty * last_price
@@ -499,16 +500,14 @@ def main():
                             unr_pnl   = (last_price - entry_price) * qty
                             unr_pct   = (last_price - entry_price) / entry_price * 100
                             unr_str   = f"{unr_pnl:+,.2f} ({unr_pct:+.1f}%)"
-                            entry_str = f"{entry_price:,.4f}"
                             addons    = risk.get_addon_count(pair)
                             qty_str   = f"{qty:.5f}" + (f" +{addons}x" if addons > 0 else "")
                         else:
                             unr_str   = "—"
-                            entry_str = "—"
                             qty_str   = f"{qty:.5f}"
                         rows.append((base, qty_str, entry_str, f"{last_price:,.4f}", f"{value:,.2f}", unr_str))
                     else:
-                        rows.append((base, f"{qty:.5f}", "—", "—", "—", "—"))
+                        rows.append((base, f"{qty:.5f}", entry_str, "—", "—", "—"))
 
             # USDT row — no entry price or P&L
             rows.append(("USDT", f"{usdt_bal:.5f}", "—", "1.0000", f"{usdt_bal:,.2f}", "—"))

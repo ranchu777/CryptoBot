@@ -70,14 +70,14 @@ class Config:
 
         # Stop loss / take profit as % of entry price
         self.STOP_LOSS_PCT    = 2.0   # exit if price drops 3%
-        self.TAKE_PROFIT_PCT  = 4.0   # exit if price rises 8%
+        self.TAKE_PROFIT_PCT  = 3.5   # exit if price rises 8%
 
         # --- Trailing stop loss ---
         # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
         # switches to trailing mode — fixed stop is replaced entirely.
-        self.TRAILING_STOP_ENABLED        = True
+        self.TRAILING_STOP_ENABLED        = False
         self.TRAILING_STOP_ACTIVATION_PCT = 2.0   # trailing activates after +1% gain
-        self.TRAILING_STOP_REPLACE_FIXED  = True   # replace fixed stop once trailing is active
+        self.TRAILING_STOP_REPLACE_FIXED  = False   # replace fixed stop once trailing is active
 
         # Max open positions at once
         self.MAX_POSITIONS = 6
@@ -123,11 +123,11 @@ class Config:
         self.BTC_DROP_BLOCK_PCT     = 2.0   # block ALT buys if BTC drops 2% in 2 candles
 
         # --- Multi-timeframe confirmation ---
-        self.MTF_ENABLED         = True
+        self.MTF_ENABLED         = False
         self.MTF_AGREE_THRESHOLD = 0.2   # 1h score must be > 0.2 for full buy confidence
 
         # --- Aggression & signal blending ---
-        self.AGGRESSION = 1.0
+        self.AGGRESSION = 1.5
 
         # Weight of each signal source — must sum to 1.0
         self.TECHNICAL_WEIGHT   = 0.28
