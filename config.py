@@ -75,7 +75,7 @@ class Config:
         # --- Trailing stop loss ---
         # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
         # switches to trailing mode — fixed stop is replaced entirely.
-        self.TRAILING_STOP_ENABLED        = False
+        self.TRAILING_STOP_ENABLED        = True
         self.TRAILING_STOP_ACTIVATION_PCT = 2.0   # trailing activates after +1% gain
         self.TRAILING_STOP_REPLACE_FIXED  = False   # replace fixed stop once trailing is active
 
@@ -130,8 +130,8 @@ class Config:
         self.AGGRESSION = 1.5
 
         # Weight of each signal source — must sum to 1.0
-        self.TECHNICAL_WEIGHT   = 0.28
-        self.NEWS_WEIGHT        = 0.20
+        self.TECHNICAL_WEIGHT   = 0.38
+        self.NEWS_WEIGHT        = 0.10
         self.SMART_MONEY_WEIGHT = 0.20
         self.CALENDAR_WEIGHT    = 0.10
         self.FNG_WEIGHT         = 0.10
@@ -223,11 +223,11 @@ class Config:
         # Binance requires ~$5 minimum per order — these are set conservatively higher
         # to avoid partial fills and dust, but low enough to work with small accounts
         self.MIN_ORDER_USDT = {
-            "BTCUSDT":  1000,
-            "ETHUSDT":  1000,
-            "SOLUSDT":  150,
-            "BNBUSDT":  150,
-            "DOGEUSDT": 150,
+            "BTCUSDT":  3000,
+            "ETHUSDT":  3000,
+            "SOLUSDT":  500,
+            "BNBUSDT":  500,
+            "DOGEUSDT": 500,
         }
 
         # Validate configuration

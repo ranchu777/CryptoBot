@@ -250,7 +250,54 @@ def main():
         current_price = candles["close"].iloc[-1]
         position      = client.get_position(pair)
 
-        logger.debug(f"{pair} | price={current_price:.4f} | signal={signal} | conf={confidence:.2f} | {reason}")
+        logger.debug(f"{pair} | price={current_price:.4f} | signal={signal} | conf={confidence:.2f} | position={position:.6f} | {reason}")
+
+        # ---- STOP LOSS / TAKE PROFIT (always execute, before news logic) ----
+        if position > 0:
+            entry = risk.get_entry_price(pair)
+            sl    = cfg.STOP_LOSS_PCT / 100
+            tp    = cfg.TAKE_PROFIT_PCT / 100
+            
+            logger.debug(f"{pair}: SL/TP check — position={position:.6f}, entry={entry:.4f}, current={current_price:.4f}, sl%={sl*100}%")
+
+            # Update peak price for trailing stop
+            if entry > 0:
+                risk.update_peak(pair, current_price)
+
+            # Fixed stop loss (always active until trailing takes over)
+            fixed_sl_price = entry * (1 - sl) if entry > 0 else 0.0
+
+            # Trailing stop (activates after +1% gain, trails 3% below peak)
+            trailing_sl_price = 0.0
+            if entry > 0 and getattr(cfg, "TRAILING_STOP_ENABLED", True):
+                trailing_sl_price = risk.get_trailing_stop(pair) or 0.0
+
+            # Once trailing is active it fully replaces the fixed stop
+            replace_fixed = getattr(cfg, "TRAILING_STOP_REPLACE_FIXED", True)
+            if trailing_sl_price > 0 and replace_fixed:
+                effective_sl  = trailing_sl_price
+                is_trailing   = True
+            else:
+                effective_sl  = fixed_sl_price
+                is_trailing   = False
+
+            hit_sl = effective_sl > 0 and current_price <= effective_sl
+            hit_tp = entry > 0 and current_price >= entry * (1 + tp)
+
+            reason_exit = None
+            if hit_sl:   reason_exit = "trailing stop" if is_trailing else "stop loss"
+            elif hit_tp: reason_exit = "take profit"
+
+            if reason_exit:
+                order = client.place_order(pair, "SELL", position)
+                if order:
+                    gain = (current_price - entry) * position
+                    risk.record_exit(pair, exit_price=current_price)
+                    logger.info(
+                        f"SELL {pair} | qty={position} @ {current_price:.4f} | "
+                        f"P&L={gain:+.2f} USDT | reason={reason_exit}"
+                    )
+                return
 
         # ---- News circuit breakers ----
         # If news is very bearish, block new buys regardless of technical signal
@@ -325,59 +372,6 @@ def main():
             else:
                 logger.debug(
                     f"{pair}: add-on skipped — conf={confidence:.0%} < {cfg.PYRAMID_MIN_CONFIDENCE:.0%} required"
-                )
-
-        # ---- SELL / exit logic — SL/TP only ----
-        elif position > 0:
-            entry = risk.get_entry_price(pair)
-            sl    = cfg.STOP_LOSS_PCT / 100
-            tp    = cfg.TAKE_PROFIT_PCT / 100
-
-            # Update peak price for trailing stop
-            if entry > 0:
-                risk.update_peak(pair, current_price)
-
-            # Fixed stop loss (always active until trailing takes over)
-            fixed_sl_price = entry * (1 - sl) if entry > 0 else 0.0
-
-            # Trailing stop (activates after +1% gain, trails 3% below peak)
-            trailing_sl_price = 0.0
-            if entry > 0 and getattr(cfg, "TRAILING_STOP_ENABLED", True):
-                trailing_sl_price = risk.get_trailing_stop(pair) or 0.0
-
-            # Once trailing is active it fully replaces the fixed stop
-            replace_fixed = getattr(cfg, "TRAILING_STOP_REPLACE_FIXED", True)
-            if trailing_sl_price > 0 and replace_fixed:
-                effective_sl  = trailing_sl_price
-                is_trailing   = True
-            else:
-                effective_sl  = fixed_sl_price
-                is_trailing   = False
-
-            hit_sl = effective_sl > 0 and current_price <= effective_sl
-            hit_tp = entry > 0 and current_price >= entry * (1 + tp)
-
-            reason_exit = None
-            if hit_sl:   reason_exit = "trailing stop" if is_trailing else "stop loss"
-            elif hit_tp: reason_exit = "take profit"
-
-            if reason_exit:
-                order = client.place_order(pair, "SELL", position)
-                if order:
-                    gain = (current_price - entry) * position
-                    risk.record_exit(pair, exit_price=current_price)
-                    logger.info(
-                        f"SELL {pair} | qty={position} @ {current_price:.4f} | "
-                        f"P&L={gain:+.2f} USDT | reason={reason_exit} | "
-                        f"conf={confidence:.0%} | news={news_score:+.3f}"
-                    )
-            else:
-                peak = risk._entries.get(pair, {}).get("peak_price", entry)
-                trail_str = f"{trailing_sl_price:.4f}" if trailing_sl_price else "inactive"
-                logger.debug(
-                    f"{pair} holding | entry={entry:.4f} | peak={peak:.4f} | "
-                    f"fixed_sl={fixed_sl_price:.4f} | trail_sl={trail_str} | "
-                    f"tp={entry*(1+tp):.4f} | current={current_price:.4f}"
                 )
 
     def fetch_news():
