@@ -339,6 +339,9 @@ def main():
             qty = risk.calculate_quantity(balance, current_price, pair, confidence)
             if qty and qty > 0:
                 qty = round(qty * vol_mult, 6)   # reduce size in high volatility
+                if qty * current_price < cfg.MIN_ORDER_USDT[pair]:
+                    logger.debug(f"{pair}: order too small after vol_mult ({qty * current_price:.2f} USDT < min {cfg.MIN_ORDER_USDT[pair]})")
+                    return
                 order = client.place_order(pair, "BUY", qty)
                 if order:
                     risk.record_entry(pair, current_price, qty)
