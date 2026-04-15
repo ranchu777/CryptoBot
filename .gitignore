@@ -48,6 +48,20 @@ coverage.xml
 *.cover
 *.py.cover
 .hypothesis/
+
+# CryptoBot specific
+# Generated data files
+*.json
+dashboard.html
+logs/
+.DS_Store
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
 .pytest_cache/
 cover/
 

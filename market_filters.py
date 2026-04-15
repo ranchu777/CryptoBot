@@ -27,6 +27,7 @@ import time
 import logging
 import requests
 import numpy as np
+from futures_client import BinanceFuturesClient
 
 logger = logging.getLogger("cryptobot")
 
@@ -47,6 +48,7 @@ class MarketFilters:
         self.cfg     = cfg
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "CryptoBot/1.0"})
+        self.futures_client = BinanceFuturesClient()
 
         # Per-signal caches
         self._fng_cache        = None   # (score, timestamp)
@@ -111,24 +113,16 @@ class MarketFilters:
                 scores[coin] = cached[0]
                 continue
 
-            try:
-                r = self.session.get(
-                    _FUTURES_URL + "/fapi/v1/premiumIndex",
-                    params={"symbol": symbol},
-                    timeout=8
-                )
-                r.raise_for_status()
-                data         = r.json()
-                funding_rate = float(data.get("lastFundingRate", 0))
-
+            funding_rate = self.futures_client.get_funding_rate(symbol)
+            if funding_rate is not None:
                 # Typical range: -0.01% to +0.1% per 8 hours
                 # Scale: 0.01% (0.0001) → full score ±1.0
                 score = round(max(-1.0, min(1.0, -funding_rate / 0.0001)), 4)
                 self._funding_cache[coin] = (score, now)
                 scores[coin] = score
                 logger.debug(f"Funding {coin}: rate={funding_rate:.5f} → score={score:+.3f}")
-            except Exception as e:
-                logger.debug(f"Funding {coin}: failed — {e}")
+            else:
+                logger.debug(f"Funding {coin}: failed")
                 scores[coin] = self._funding_cache.get(coin, (0.0,))[0]
 
         return scores
@@ -151,41 +145,31 @@ class MarketFilters:
         scores = {}
 
         for coin, symbol in _FUTURES_SYMBOLS.items():
-            try:
-                r = self.session.get(
-                    _FUTURES_URL + "/futures/data/openInterestHist",
-                    params={"symbol": symbol, "period": "5m", "limit": 3},
-                    timeout=8
-                )
-                r.raise_for_status()
-                data = r.json()
-                if not data or len(data) < 2:
-                    scores[coin] = 0.0
-                    continue
+            data = self.futures_client.get_open_interest_hist(symbol, "5m", 3)
+            if not data or len(data) < 2:
+                scores[coin] = 0.0
+                continue
 
-                oi_old = float(data[0]["sumOpenInterest"])
-                oi_new = float(data[-1]["sumOpenInterest"])
-                oi_chg = (oi_new - oi_old) / oi_old if oi_old > 0 else 0
+            oi_old = float(data[0]["sumOpenInterest"])
+            oi_new = float(data[-1]["sumOpenInterest"])
+            oi_chg = (oi_new - oi_old) / oi_old if oi_old > 0 else 0
 
-                price = current_prices.get(coin, 0)
-                cached_price = self._oi_cache.get(coin, {}).get("price", price)
-                price_chg    = (price - cached_price) / cached_price if cached_price > 0 else 0
+            price = current_prices.get(coin, 0)
+            cached_price = self._oi_cache.get(coin, {}).get("price", price)
+            price_chg    = (price - cached_price) / cached_price if cached_price > 0 else 0
 
-                # Rising OI + rising price = bullish confirmation
-                # Rising OI + falling price = bearish divergence
-                if oi_chg > 0.002:       # OI up meaningfully
-                    score = 0.6 if price_chg >= 0 else -0.6
-                elif oi_chg < -0.002:    # OI falling = weakening trend
-                    score = -0.2
-                else:
-                    score = 0.0
+            # Rising OI + rising price = bullish confirmation
+            # Rising OI + falling price = bearish divergence
+            if oi_chg > 0.002:       # OI up meaningfully
+                score = 0.6 if price_chg >= 0 else -0.6
+            elif oi_chg < -0.002:    # OI falling = weakening trend
+                score = -0.2
+            else:
+                score = 0.0
 
-                self._oi_cache[coin] = {"score": score, "price": price, "ts": now}
-                scores[coin] = score
-                logger.debug(f"OI {coin}: oi_chg={oi_chg:+.4f} price_chg={price_chg:+.4f} → {score:+.2f}")
-            except Exception as e:
-                logger.debug(f"OI {coin}: failed — {e}")
-                scores[coin] = self._oi_cache.get(coin, {}).get("score", 0.0)
+            self._oi_cache[coin] = {"score": score, "price": price, "ts": now}
+            scores[coin] = score
+            logger.debug(f"OI {coin}: oi_chg={oi_chg:+.4f} price_chg={price_chg:+.4f} → {score:+.2f}")
 
         return scores
 

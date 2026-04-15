@@ -31,6 +31,7 @@ Usage:
 import time
 import logging
 import requests
+from futures_client import BinanceFuturesClient
 
 logger = logging.getLogger("cryptobot")
 
@@ -52,8 +53,7 @@ class SmartMoneyTracker:
         self.cfg        = cfg
         self._cache     = {}
         self._cache_ttl = getattr(cfg, "SMART_MONEY_CACHE_TTL", 900)
-        self.session    = requests.Session()
-        self.session.headers.update({"User-Agent": "CryptoBot/1.0"})
+        self.client     = BinanceFuturesClient()
         self._enabled        = getattr(cfg, "SMART_MONEY_ENABLED", True)
         self._leaderboard    = LeaderboardTracker(cfg) if getattr(cfg, "LEADERBOARD_ENABLED", True) else None
         # Weight split between long/short ratio and leaderboard
@@ -120,65 +120,35 @@ class SmartMoneyTracker:
         Falls back to global account ratio if top trader data unavailable.
         """
         # Try top trader position ratio first (higher quality signal)
-        score = self._fetch_endpoint(
-            "/futures/data/topLongShortPositionRatio",
-            symbol, period="15m", limit=1
-        )
-        if score is not None:
-            return score
+        data = self.client.get_top_long_short_ratio(symbol, "15m", 1)
+        if data:
+            return self._ratio_to_score(data)
 
         # Fallback: global long/short account ratio
-        score = self._fetch_endpoint(
-            "/futures/data/globalLongShortAccountRatio",
-            symbol, period="15m", limit=1
-        )
-        if score is not None:
-            return score
+        data = self.client.get_global_long_short_ratio(symbol, "15m", 1)
+        if data:
+            return self._ratio_to_score(data)
 
         return 0.0
 
-    def _fetch_endpoint(self, endpoint: str, symbol: str,
-                        period: str = "15m", limit: int = 1) -> float | None:
-        """Fetch a single long/short ratio endpoint and return a score."""
-        try:
-            r = self.session.get(
-                _FUTURES_URL + endpoint,
-                params={"symbol": symbol, "period": period, "limit": limit},
-                timeout=8
-            )
-            if r.status_code == 404:
-                return None   # symbol not on futures
-            r.raise_for_status()
-            data = r.json()
+    def _ratio_to_score(self, data: dict) -> float:
+        """Convert API response data to -1.0..+1.0 score."""
+        ratio = float(
+            data.get("longShortRatio") or
+            data.get("longAccount") or
+            1.0
+        )
 
-            if not data:
-                return None
+        # If the field is longAccount (0.0–1.0 fraction), convert to ratio
+        if ratio <= 1.0 and ratio > 0:
+            # It's a fraction — convert: fraction 0.6 → ratio 0.6/0.4 = 1.5
+            if ratio != 1.0:
+                ratio = ratio / (1.0 - ratio)
 
-            # Response: [{"symbol": "BTCUSDT", "longShortRatio": "1.5423", ...}]
-            latest  = data[-1] if isinstance(data, list) else data
-            ratio   = float(
-                latest.get("longShortRatio") or
-                latest.get("longAccount") or
-                1.0
-            )
-
-            # If the field is longAccount (0.0–1.0 fraction), convert to ratio
-            if ratio <= 1.0 and ratio > 0:
-                # It's a fraction — convert: fraction 0.6 → ratio 0.6/0.4 = 1.5
-                if ratio != 1.0:
-                    ratio = ratio / (1.0 - ratio)
-
-            # Convert ratio to -1.0..+1.0 score
-            # ratio=2.0 (2x more longs) → +1.0, ratio=0.5 → -1.0, ratio=1.0 → 0.0
-            score = (ratio - 1.0) * 2.0
-            return round(max(-1.0, min(1.0, score)), 4)
-
-        except requests.RequestException as e:
-            logger.debug(f"SmartMoney: {endpoint} {symbol} failed — {e}")
-            return None
-        except (ValueError, KeyError, IndexError) as e:
-            logger.debug(f"SmartMoney: {symbol} parse error — {e}")
-            return None
+        # Convert ratio to -1.0..+1.0 score
+        # ratio=2.0 (2x more longs) → +1.0, ratio=0.5 → -1.0, ratio=1.0 → 0.0
+        score = (ratio - 1.0) * 2.0
+        return round(max(-1.0, min(1.0, score)), 4)
 
     # ------------------------------------------------------------------ #
     #  Logging                                                             #
