@@ -223,7 +223,9 @@ class RiskManager:
         if peak_price < entry_price * (1 + activation):
             return None
 
-        return round(peak_price * (1 - trail_pct), 8)
+        trailing_stop = round(peak_price * (1 - trail_pct), 8)
+        logger.debug(f"Trailing stop activated for {symbol}: entry={entry_price:.4f}, peak={peak_price:.4f}, stop={trailing_stop:.4f}")
+        return trailing_stop
 
     def can_add_to_position(self, symbol: str) -> bool:
         """

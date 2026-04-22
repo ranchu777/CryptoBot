@@ -76,8 +76,8 @@ class Config:
         # Once price gains TRAILING_STOP_ACTIVATION_PCT above entry, the stop loss
         # switches to trailing mode — fixed stop is replaced entirely.
         self.TRAILING_STOP_ENABLED        = True
-        self.TRAILING_STOP_ACTIVATION_PCT = 2.0   # trailing activates after +1% gain
-        self.TRAILING_STOP_REPLACE_FIXED  = False   # replace fixed stop once trailing is active
+        self.TRAILING_STOP_ACTIVATION_PCT = 2.0   # trailing activates after +2% gain
+        self.TRAILING_STOP_REPLACE_FIXED  = True   # replace fixed stop once trailing is active
 
         # Max open positions at once
         self.MAX_POSITIONS = 6

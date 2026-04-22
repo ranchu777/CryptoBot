@@ -267,7 +267,7 @@ def main():
             # Fixed stop loss (always active until trailing takes over)
             fixed_sl_price = entry * (1 - sl) if entry > 0 else 0.0
 
-            # Trailing stop (activates after +1% gain, trails 3% below peak)
+            # Trailing stop (activates after TRAILING_STOP_ACTIVATION_PCT gain, trails STOP_LOSS_PCT below peak)
             trailing_sl_price = 0.0
             if entry > 0 and getattr(cfg, "TRAILING_STOP_ENABLED", True):
                 trailing_sl_price = risk.get_trailing_stop(pair) or 0.0
@@ -456,6 +456,48 @@ def main():
                 p.replace("USDT", ""): candle_data[p]["close"].iloc[-1]
                 for p in args.pairs if candle_data.get(p) is not None
             }
+
+            # Log the full combined score and signal details per pair at cycle start
+            logger.info("Cycle signal summary:")
+            table_div = "+------------+--------+-------+----------+"
+            table_header = "| Coin       | signal | conf  | total    |"
+            logger.info(table_div)
+            logger.info(table_header)
+            logger.info(table_div)
+
+            for pair in args.pairs:
+                candles = candle_data.get(pair)
+                if candles is None or len(candles) < 30:
+                    logger.info(f"| {pair:<10} | insufficient candle data{' ' * 21}|")
+                    continue
+
+                base = pair.replace("USDT", "")
+                news_score = news_scores.get(base, 0.0)
+                sm_score = sm_scores.get(base, 0.0)
+                funding_score = funding_scores.get(base, 0.0)
+
+                signal, confidence, reason = strategy.get_combined_signal(
+                    candles, news_score, sm_score, cal_score, fng_score, funding_score
+                )
+
+                score_parts = {}
+                for token in reason.split():
+                    if "=" not in token:
+                        continue
+                    key, value = token.split("=", 1)
+                    if value.endswith("x"):
+                        value = value[:-1]
+                    try:
+                        score_parts[key] = float(value)
+                    except ValueError:
+                        continue
+
+                logger.info(
+                    f"| {pair:<10} | {signal or 'hold':<6} | {confidence:5.2f} | "
+                    f"{score_parts.get('combined', 0.0):+8.3f} |"
+                )
+
+            logger.info(table_div)
             oi_scores = mkt_filters.get_oi_scores(current_prices)
 
             # Get BTC candles for correlation filter
